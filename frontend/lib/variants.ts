@@ -1,12 +1,13 @@
 export type VariantInfo = {
   name: string;
+  shortLabel: string;
 };
 
 export const VARIANTS: VariantInfo[] = [
-  { name: "Baseline" },
-  { name: "Gender" },
-  { name: "Race & Ethnicity" },
-  { name: "Socioeconomic Background" },
+  { name: "Baseline", shortLabel: "Baseline" },
+  { name: "Gender", shortLabel: "Gender" },
+  { name: "Race & Ethnicity", shortLabel: "Race" },
+  { name: "Socioeconomic Background", shortLabel: "Socio" },
 ];
 
 const byName = Object.fromEntries(VARIANTS.map((v) => [v.name, v]));

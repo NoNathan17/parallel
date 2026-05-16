@@ -44,6 +44,7 @@ def initial_state(raw_resume_text: str, target_role: str) -> SimulationState:
         candidates=[],
         stages=STAGE_NAMES,
         events=[],
+        agent_transcript=[],
         final_feedback=None,
         current_stage_index=-1,
         stage_scores={},

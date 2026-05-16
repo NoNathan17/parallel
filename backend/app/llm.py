@@ -16,6 +16,16 @@ def is_llm_enabled() -> bool:
     return bool(settings.openai_api_key.strip())
 
 
+def get_chat_model(*, streaming: bool = False) -> ChatOpenAI:
+    settings = get_settings()
+    return ChatOpenAI(
+        api_key=settings.openai_api_key,
+        model=settings.openai_model,
+        temperature=0.4,
+        streaming=streaming,
+    )
+
+
 def enhance_audit_feedback(
     *,
     target_role: str,
@@ -61,11 +71,7 @@ def enhance_audit_feedback(
     )
 
     try:
-        model = ChatOpenAI(
-            api_key=settings.openai_api_key,
-            model=settings.openai_model,
-            temperature=0.3,
-        )
+        model = get_chat_model(streaming=False)
         response = model.invoke([system, human])
         raw = response.content if isinstance(response.content, str) else str(response.content)
         raw = raw.strip()

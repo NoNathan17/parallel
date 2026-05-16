@@ -5,6 +5,7 @@ from app.schemas.simulation import (
     ParsedResume,
     SimulationState,
     TimelineEvent,
+    TranscriptEntry,
 )
 
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "ParsedResume",
     "SimulationState",
     "TimelineEvent",
+    "TranscriptEntry",
 ]

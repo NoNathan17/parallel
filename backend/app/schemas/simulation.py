@@ -20,10 +20,22 @@ class CandidateVariant(TypedDict):
     hidden_context: dict[str, Any]
 
 
+class TranscriptEntry(TypedDict):
+    speaker: str
+    content: str
+    stage: str
+    candidateId: str
+
+
 class TimelineEvent(TypedDict, total=False):
     type: str
     stage: str
     stageIndex: int
+    messageId: NotRequired[str]
+    speaker: NotRequired[str]
+    messageRole: NotRequired[str]
+    content: NotRequired[str]
+    delta: NotRequired[str]
     candidateId: NotRequired[str]
     candidateName: NotRequired[str]
     variant: NotRequired[str]
@@ -55,6 +67,7 @@ class SimulationState(TypedDict, total=False):
     candidates: list[CandidateVariant]
     stages: list[str]
     events: list[TimelineEvent]
+    agent_transcript: list[TranscriptEntry]
     final_feedback: FinalFeedback | None
     current_stage_index: int
-    stage_scores: dict[str, dict[str, dict[str, float]]]
+    stage_scores: dict[str, dict[str, float]]

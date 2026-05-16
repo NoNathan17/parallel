@@ -2,19 +2,28 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { AgentMessageCard } from "@/components/agent-message-card";
 import { FinalFeedbackPanel } from "@/components/final-feedback-panel";
 import { LandingPanel } from "@/components/landing-panel";
 import { ResumeForm } from "@/components/resume-form";
 import { TimelineEventCard } from "@/components/timeline-event-card";
 import { VariantsGuide } from "@/components/variants-guide";
 import {
+  applyAgentStreamEvent,
+  isAgentStreamEvent,
+} from "@/lib/agent-stream";
+import {
   checkHealth,
   streamSimulationFile,
   streamSimulationJson,
 } from "@/lib/api";
-import type { FinalFeedback, TimelineEvent } from "@/lib/types";
+import type { AgentMessage, FinalFeedback, SimulationEvent, TimelineEvent } from "@/lib/types";
 import { isFinalFeedback, isTimelineEvent } from "@/lib/types";
 import { VARIANTS } from "@/lib/variants";
+
+type FeedItem =
+  | { kind: "agent"; messageId: string }
+  | { kind: "timeline"; key: string };
 
 const DEFAULT_ROLE = "Software Engineering Intern";
 
@@ -22,6 +31,10 @@ export function SimulationApp() {
   const [targetRole, setTargetRole] = useState(DEFAULT_ROLE);
   const [resumeText, setResumeText] = useState("");
   const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [agentMessages, setAgentMessages] = useState<Map<string, AgentMessage>>(
+    new Map(),
+  );
+  const [feed, setFeed] = useState<FeedItem[]>([]);
   const [finalFeedback, setFinalFeedback] = useState<FinalFeedback | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,13 +67,47 @@ export function SimulationApp() {
     if (loading) {
       timelineEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [events.length, loading]);
+  }, [feed.length, loading]);
 
   const reset = useCallback(() => {
     setEvents([]);
+    setAgentMessages(new Map());
+    setFeed([]);
     setFinalFeedback(null);
     setError(null);
     setDone(false);
+  }, []);
+
+  const ingestEvent = useCallback((item: SimulationEvent) => {
+    if (isAgentStreamEvent(item)) {
+      const msgEvent = item as TimelineEvent;
+      if (item.type === "agent_message_start" && msgEvent.messageId) {
+        setFeed((prev) => {
+          if (prev.some((f) => f.kind === "agent" && f.messageId === msgEvent.messageId)) {
+            return prev;
+          }
+          return [...prev, { kind: "agent", messageId: msgEvent.messageId! }];
+        });
+      }
+      setAgentMessages((prev) => applyAgentStreamEvent(prev, msgEvent));
+      return;
+    }
+
+    if (isFinalFeedback(item)) {
+      setFinalFeedback(item.feedback);
+      return;
+    }
+
+    if (isTimelineEvent(item)) {
+      const key = `${item.timestamp}-${item.type}-${item.stageIndex}-${item.candidateId ?? ""}`;
+      setEvents((prev) => [...prev, item]);
+      setFeed((prev) => [...prev, { kind: "timeline", key }]);
+      return;
+    }
+
+    if (item.type === "simulation_done") {
+      setDone(true);
+    }
   }, []);
 
   const runStream = useCallback(
@@ -74,14 +121,7 @@ export function SimulationApp() {
       try {
         for await (const item of generator) {
           if (ac.signal.aborted) break;
-
-          if (isFinalFeedback(item)) {
-            setFinalFeedback(item.feedback);
-          } else if (isTimelineEvent(item)) {
-            setEvents((prev) => [...prev, item]);
-          } else if (item.type === "simulation_done") {
-            setDone(true);
-          }
+          ingestEvent(item);
         }
       } catch (err) {
         if (!ac.signal.aborted) {
@@ -91,7 +131,7 @@ export function SimulationApp() {
         setLoading(false);
       }
     },
-    [reset],
+    [reset, ingestEvent],
   );
 
   const handleSubmitPaste = () => {
@@ -107,13 +147,28 @@ export function SimulationApp() {
     setLoading(false);
   };
 
-  const filteredEvents =
+  const filteredFeed =
     filterVariant === "all"
-      ? events
-      : events.filter((e) => e.variant === filterVariant);
+      ? feed
+      : feed.filter((item) => {
+          if (item.kind === "agent") {
+            const msg = agentMessages.get(item.messageId);
+            return !msg?.variant || msg.variant === filterVariant;
+          }
+          const ev = events.find(
+            (e) =>
+              `${e.timestamp}-${e.type}-${e.stageIndex}-${e.candidateId ?? ""}` ===
+              item.key,
+          );
+          return !ev?.variant || ev.variant === filterVariant;
+        });
 
-  const stageSet = new Set(events.map((e) => e.stage));
-  const showLanding = !loading && events.length === 0 && !finalFeedback;
+  const stageSet = new Set([
+    ...events.map((e) => e.stage),
+    ...Array.from(agentMessages.values()).map((m) => m.stage),
+  ]);
+  const showLanding =
+    !loading && feed.length === 0 && !finalFeedback;
 
   return (
     <div className="min-h-full bg-[var(--background)] text-[var(--foreground)]">
@@ -136,7 +191,7 @@ export function SimulationApp() {
                 />
                 {apiOk && llmEnabled && (
                   <span className="rounded-full bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-medium text-[var(--primary)]">
-                    AI summary on
+                    AI agents on
                   </span>
                 )}
               </>
@@ -182,7 +237,7 @@ export function SimulationApp() {
 
             {showLanding && <LandingPanel apiOk={apiOk} />}
 
-            {(events.length > 0 || loading) && (
+            {(feed.length > 0 || loading) && (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-medium text-[var(--muted)]">
                   Show:
@@ -204,14 +259,14 @@ export function SimulationApp() {
                 ))}
                 {stageSet.size > 0 && (
                   <span className="ml-auto text-xs text-[var(--muted-light)]">
-                    {events.length} events · {stageSet.size} stages
+                    {feed.length} updates · {stageSet.size} stages
                   </span>
                 )}
               </div>
             )}
 
             <div className="space-y-3">
-              {loading && events.length === 0 && (
+              {loading && feed.length === 0 && (
                 <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-5">
                   <Spinner />
                   <span className="text-sm text-[var(--muted)]">
@@ -219,13 +274,32 @@ export function SimulationApp() {
                   </span>
                 </div>
               )}
-              {filteredEvents.map((event, i) => (
-                <TimelineEventCard
-                  key={`${event.timestamp}-${event.candidateId}-${event.stageIndex}-${i}`}
-                  event={event}
-                  isLatest={i === filteredEvents.length - 1 && loading}
-                />
-              ))}
+              {filteredFeed.map((item, i) => {
+                if (item.kind === "agent") {
+                  const msg = agentMessages.get(item.messageId);
+                  if (!msg) return null;
+                  return (
+                    <AgentMessageCard
+                      key={item.messageId}
+                      message={msg}
+                      isStreaming={!msg.isComplete && loading}
+                    />
+                  );
+                }
+                const event = events.find(
+                  (e) =>
+                    `${e.timestamp}-${e.type}-${e.stageIndex}-${e.candidateId ?? ""}` ===
+                    item.key,
+                );
+                if (!event) return null;
+                return (
+                  <TimelineEventCard
+                    key={item.key}
+                    event={event}
+                    isLatest={i === filteredFeed.length - 1 && loading}
+                  />
+                );
+              })}
               <div ref={timelineEndRef} />
             </div>
 

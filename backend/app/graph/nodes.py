@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 
+from app.agents.stage_runner import stream_agent_turn, stream_auditor_summary
 from app.candidate_generator import create_candidate_variants
-from app.llm import enhance_audit_feedback
+from app.llm import enhance_audit_feedback, is_llm_enabled
 from app.resume_parser import parse_resume_text
 from app.schemas import CandidateVariant, FinalFeedback, SimulationState, TimelineEvent
 from app.scoring import (
@@ -27,9 +28,6 @@ def _event(
     message: str,
     stage_feedback: str,
     candidate: CandidateVariant | None = None,
-    scores: dict[str, float] | None = None,
-    assumption_tags: list[str] | None = None,
-    branch_reason: str = "",
 ) -> TimelineEvent:
     evt: TimelineEvent = {
         "type": event_type,
@@ -45,15 +43,6 @@ def _event(
         evt["candidateId"] = candidate["id"]
         evt["candidateName"] = candidate["name"]
         evt["variant"] = candidate["variant"]
-    if scores:
-        evt["technicalScore"] = scores["technicalScore"]
-        evt["subjectiveScore"] = scores["subjectiveScore"]
-        evt["confidence"] = scores["confidence"]
-        evt["callbackProbability"] = scores["callbackProbability"]
-    if assumption_tags:
-        evt["assumptionTags"] = assumption_tags
-    if branch_reason:
-        evt["branchReason"] = branch_reason
     return evt
 
 
@@ -96,48 +85,9 @@ def generate_candidate_variants_node(state: SimulationState) -> dict:
                     f"contextual signal only: {c['signal']}"
                 ),
                 candidate=c,
-                assumption_tags=["controlled_variant", "equivalent_qualifications"],
             )
         )
     return {"candidates": candidates, "current_stage_index": 1, "events": events}
-
-
-def _evaluate_stage(
-    state: SimulationState,
-    *,
-    stage_index: int,
-    stage_name: str,
-    source_agent: str,
-    target_agent: str,
-    scorer,
-    feedback_fn,
-) -> dict:
-    candidates = state["candidates"]
-    stage_scores: dict[str, dict[str, float]] = dict(state.get("stage_scores") or {})
-    events: list[TimelineEvent] = []
-    for candidate in candidates:
-        scores = scorer(candidate)
-        stage_scores[candidate["id"]] = scores
-        events.append(
-            _event(
-                event_type="stage_evaluation",
-                stage=stage_name,
-                stage_index=stage_index,
-                source_agent=source_agent,
-                target_agent=target_agent,
-                message=f"{target_agent} evaluated {candidate['variant']}.",
-                stage_feedback=feedback_fn(candidate, scores),
-                candidate=candidate,
-                scores=scores,
-                assumption_tags=feedback_fn(candidate, scores, tags_only=True),  # type: ignore[arg-type]
-                branch_reason=feedback_fn(candidate, scores, branch_only=True),  # type: ignore[arg-type]
-            )
-        )
-    return {
-        "current_stage_index": stage_index,
-        "stage_scores": stage_scores,
-        "events": events,
-    }
 
 
 def _screener_feedback(candidate: CandidateVariant, scores: dict, tags_only=False, branch_only=False):
@@ -157,18 +107,6 @@ def _screener_feedback(candidate: CandidateVariant, scores: dict, tags_only=Fals
     return text + (f" {branch}" if branch else "")
 
 
-def resume_screener_node(state: SimulationState) -> dict:
-    return _evaluate_stage(
-        state,
-        stage_index=2,
-        stage_name=STAGE_NAMES[2],
-        source_agent="Variant Generator",
-        target_agent="Resume Screener Agent",
-        scorer=score_resume_screener,
-        feedback_fn=_screener_feedback,
-    )
-
-
 def _recruiter_feedback(candidate: CandidateVariant, scores: dict, tags_only=False, branch_only=False):
     tags = ["culture_fit", "polish"]
     branch = ""
@@ -183,26 +121,14 @@ def _recruiter_feedback(candidate: CandidateVariant, scores: dict, tags_only=Fal
         tags.extend(["class_bias", "network_signal"])
         branch = "Pedigree and network assumptions reduce callback despite parity."
     text = (
-        f"Recruiter review (Resume Screener Agent → Recruiter Agent): "
-        f"subjective {scores['subjectiveScore']:.0f}, callback {scores['callbackProbability']:.0%}."
+        f"Recruiter review: subjective {scores['subjectiveScore']:.0f}, "
+        f"callback {scores['callbackProbability']:.0%}."
     )
     if branch_only:
         return branch
     if tags_only:
         return tags
     return text + (f" {branch}" if branch else "")
-
-
-def recruiter_node(state: SimulationState) -> dict:
-    return _evaluate_stage(
-        state,
-        stage_index=3,
-        stage_name=STAGE_NAMES[3],
-        source_agent="Resume Screener Agent",
-        target_agent="Recruiter Agent",
-        scorer=score_recruiter,
-        feedback_fn=_recruiter_feedback,
-    )
 
 
 def _technical_feedback(candidate: CandidateVariant, scores: dict, tags_only=False, branch_only=False):
@@ -215,8 +141,8 @@ def _technical_feedback(candidate: CandidateVariant, scores: dict, tags_only=Fal
             "possible gendered expectation bias."
         )
     text = (
-        f"Technical interview (Recruiter Agent → Technical Interviewer Agent): "
-        f"technical {scores['technicalScore']:.0f}, subjective {scores['subjectiveScore']:.0f}."
+        f"Technical interview: technical {scores['technicalScore']:.0f}, "
+        f"subjective {scores['subjectiveScore']:.0f}."
     )
     if branch_only:
         return branch
@@ -225,9 +151,93 @@ def _technical_feedback(candidate: CandidateVariant, scores: dict, tags_only=Fal
     return text + (f" {branch}" if branch else "")
 
 
-def technical_interviewer_node(state: SimulationState) -> dict:
-    return _evaluate_stage(
+def _manager_feedback(candidate: CandidateVariant, scores: dict, tags_only=False, branch_only=False):
+    tags = ["aggregate_review", "prior_stage_notes"]
+    branch = "Final decision weighs subjective and confidence over technical parity."
+    text = (
+        f"Hiring manager: callback {scores['callbackProbability']:.0%}, "
+        f"confidence {scores['confidence']:.0%}."
+    )
+    if branch_only:
+        return branch
+    if tags_only:
+        return tags
+    return text
+
+
+async def _run_stage_for_all(
+    state: SimulationState,
+    *,
+    stage_key: str,
+    stage_index: int,
+    stage_name: str,
+    source_agent: str,
+    target_agent: str,
+    scorer,
+    feedback_fn,
+) -> dict:
+    candidates = state["candidates"]
+    stage_scores: dict[str, dict[str, float]] = dict(state.get("stage_scores") or {})
+    transcript = list(state.get("agent_transcript") or [])
+    events: list[TimelineEvent] = []
+    prior_scores = dict(stage_scores)
+
+    for candidate in candidates:
+        merged_state: SimulationState = {**state, "agent_transcript": transcript}
+        scores, new_lines, eval_event = await stream_agent_turn(
+            state=merged_state,
+            candidate=candidate,
+            stage_key=stage_key,
+            stage_name=stage_name,
+            stage_index=stage_index,
+            source_agent=source_agent,
+            target_agent=target_agent,
+            fallback_scorer=scorer,
+            fallback_feedback=feedback_fn,
+            prior_scores=prior_scores or None,
+        )
+        stage_scores[candidate["id"]] = scores
+        transcript.extend(new_lines)
+        events.append(eval_event)
+
+    return {
+        "current_stage_index": stage_index,
+        "stage_scores": stage_scores,
+        "agent_transcript": transcript,
+        "events": events,
+    }
+
+
+async def resume_screener_node(state: SimulationState) -> dict:
+    return await _run_stage_for_all(
         state,
+        stage_key="resume_screener",
+        stage_index=2,
+        stage_name=STAGE_NAMES[2],
+        source_agent="Variant Generator",
+        target_agent="Resume Screener Agent",
+        scorer=score_resume_screener,
+        feedback_fn=_screener_feedback,
+    )
+
+
+async def recruiter_node(state: SimulationState) -> dict:
+    return await _run_stage_for_all(
+        state,
+        stage_key="recruiter",
+        stage_index=3,
+        stage_name=STAGE_NAMES[3],
+        source_agent="Resume Screener Agent",
+        target_agent="Recruiter Agent",
+        scorer=score_recruiter,
+        feedback_fn=_recruiter_feedback,
+    )
+
+
+async def technical_interviewer_node(state: SimulationState) -> dict:
+    return await _run_stage_for_all(
+        state,
+        stage_key="technical_interviewer",
         stage_index=4,
         stage_name=STAGE_NAMES[4],
         source_agent="Recruiter Agent",
@@ -237,48 +247,45 @@ def technical_interviewer_node(state: SimulationState) -> dict:
     )
 
 
-def _manager_feedback(candidate: CandidateVariant, scores: dict, tags_only=False, branch_only=False):
-    tags = ["aggregate_review", "prior_stage_notes"]
-    branch = "Final decision weighs subjective and confidence over technical parity."
-    text = (
-        f"Hiring manager (Technical Interviewer Agent → Hiring Manager Agent): "
-        f"callback {scores['callbackProbability']:.0%}, confidence {scores['confidence']:.0%}."
-    )
-    if branch_only:
-        return branch
-    if tags_only:
-        return tags
-    return text
-
-
-def hiring_manager_node(state: SimulationState) -> dict:
+async def hiring_manager_node(state: SimulationState) -> dict:
     prior_scores = state.get("stage_scores") or {}
     candidates = state["candidates"]
     stage_scores: dict[str, dict[str, float]] = dict(prior_scores)
+    transcript = list(state.get("agent_transcript") or [])
     events: list[TimelineEvent] = []
+
     for candidate in candidates:
         prev = prior_scores.get(candidate["id"], score_technical_interviewer(candidate))
-        scores = score_hiring_manager(candidate, prev)
-        stage_scores[candidate["id"]] = scores
-        events.append(
-            _event(
-                event_type="stage_evaluation",
-                stage=STAGE_NAMES[5],
-                stage_index=5,
-                source_agent="Technical Interviewer Agent",
-                target_agent="Hiring Manager Agent",
-                message=f"Hiring Manager decision for {candidate['variant']}.",
-                stage_feedback=_manager_feedback(candidate, scores),
-                candidate=candidate,
-                scores=scores,
-                assumption_tags=_manager_feedback(candidate, scores, tags_only=True),  # type: ignore
-                branch_reason=_manager_feedback(candidate, scores, branch_only=True),  # type: ignore
-            )
+        merged_state: SimulationState = {**state, "agent_transcript": transcript}
+
+        def hm_scorer(c: CandidateVariant, _prev: dict[str, float] = prev) -> dict[str, float]:
+            return score_hiring_manager(c, _prev)
+
+        scores, new_lines, eval_event = await stream_agent_turn(
+            state=merged_state,
+            candidate=candidate,
+            stage_key="hiring_manager",
+            stage_name=STAGE_NAMES[5],
+            stage_index=5,
+            source_agent="Technical Interviewer Agent",
+            target_agent="Hiring Manager Agent",
+            fallback_scorer=hm_scorer,
+            fallback_feedback=_manager_feedback,
+            prior_scores=prior_scores,
         )
-    return {"current_stage_index": 5, "stage_scores": stage_scores, "events": events}
+        stage_scores[candidate["id"]] = scores
+        transcript.extend(new_lines)
+        events.append(eval_event)
+
+    return {
+        "current_stage_index": 5,
+        "stage_scores": stage_scores,
+        "agent_transcript": transcript,
+        "events": events,
+    }
 
 
-def bias_auditor_node(state: SimulationState) -> dict:
+async def bias_auditor_node(state: SimulationState) -> dict:
     candidates = state["candidates"]
     final_scores = state.get("stage_scores") or {}
     baseline = final_scores.get("baseline", {})
@@ -321,8 +328,6 @@ def bias_auditor_node(state: SimulationState) -> dict:
                     f"{baseline.get('technicalScore', 0):.0f}."
                 ),
                 candidate=candidate,
-                scores=scores,
-                assumption_tags=["fairness_audit", "trajectory_comparison"],
             )
         )
 
@@ -350,6 +355,11 @@ def bias_auditor_node(state: SimulationState) -> dict:
         "suggested_interventions": interventions,
         "fairness_delta_placeholder": "Fairness delta metric placeholder — integrate calibrated scoring in production.",
     }
+
+    await stream_auditor_summary(
+        state=state,
+        reasoning="" if is_llm_enabled() else fallback_feedback["summary"],
+    )
 
     final_feedback = enhance_audit_feedback(
         target_role=state["target_role"],

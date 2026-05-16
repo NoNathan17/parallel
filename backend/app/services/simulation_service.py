@@ -23,31 +23,49 @@ def _sse_payload(data: dict[str, Any]) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
+def _emit_node_output(node_output: dict[str, Any]) -> list[str]:
+    payloads: list[str] = []
+    for event in node_output.get("events") or []:
+        payloads.append(_sse_payload(dict(event)))
+    if node_output.get("final_feedback"):
+        payloads.append(
+            _sse_payload(
+                {
+                    "type": "final_feedback",
+                    "feedback": _to_camel_feedback(node_output["final_feedback"]),
+                }
+            )
+        )
+    return payloads
+
+
 async def stream_simulation(
     graph: CompiledStateGraph,
     raw_resume_text: str,
     target_role: str,
     *,
-    event_delay: float = 0.12,
+    event_delay: float = 0.05,
 ) -> AsyncIterator[str]:
     state: SimulationState = initial_state(raw_resume_text, target_role)
 
-    async for update in graph.astream(state, stream_mode="updates"):
-        for _node_name, node_output in update.items():
-            if not isinstance(node_output, dict):
-                continue
-            new_events: list[TimelineEvent] = node_output.get("events") or []
-            for event in new_events:
-                yield _sse_payload(dict(event))
-                await asyncio.sleep(event_delay)
+    async for chunk in graph.astream(state, stream_mode=["updates", "custom"]):
+        if isinstance(chunk, tuple) and len(chunk) == 3:
+            _namespace, mode, data = chunk
+        elif isinstance(chunk, tuple) and len(chunk) == 2:
+            mode, data = chunk
+        else:
+            mode, data = "updates", chunk
 
-            if node_output.get("final_feedback"):
-                yield _sse_payload(
-                    {
-                        "type": "final_feedback",
-                        "feedback": _to_camel_feedback(node_output["final_feedback"]),
-                    }
-                )
-                await asyncio.sleep(event_delay)
+        if mode == "custom" and isinstance(data, dict):
+            yield _sse_payload(data)
+            continue
+
+        if mode == "updates" and isinstance(data, dict):
+            for _node_name, node_output in data.items():
+                if not isinstance(node_output, dict):
+                    continue
+                for payload in _emit_node_output(node_output):
+                    yield payload
+                    await asyncio.sleep(event_delay)
 
     yield _sse_payload({"type": "simulation_done"})
