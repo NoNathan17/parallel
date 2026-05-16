@@ -1,9 +1,3 @@
-from typing import Annotated
+from app.schemas import SimulationState
 
-from langchain_core.messages import BaseMessage
-from langgraph.graph.message import add_messages
-from typing_extensions import TypedDict
-
-
-class GraphState(TypedDict):
-    messages: Annotated[list[BaseMessage], add_messages]
+__all__ = ["SimulationState"]
