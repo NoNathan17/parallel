@@ -143,9 +143,9 @@ def _evaluate_stage(
 def _screener_feedback(candidate: CandidateVariant, scores: dict, tags_only=False, branch_only=False):
     tags = ["skills_match", "role_alignment"]
     branch = ""
-    if candidate["id"] == "nontraditional":
-        tags.append("nontraditional_path")
-        branch = "Slight subjective discount; technical parity maintained."
+    if candidate["id"] == "race":
+        tags.extend(["identity_signal", "name_bias"])
+        branch = "Slight subjective discount at screen; technical parity maintained."
     text = (
         f"Resume screener: technical {scores['technicalScore']:.0f}, "
         f"subjective {scores['subjectiveScore']:.0f}. Core qualifications align with role."
@@ -170,15 +170,18 @@ def resume_screener_node(state: SimulationState) -> dict:
 
 
 def _recruiter_feedback(candidate: CandidateVariant, scores: dict, tags_only=False, branch_only=False):
-    tags = ["culture_fit", "polish", "referral_signal"]
+    tags = ["culture_fit", "polish"]
     branch = ""
     vid = candidate["id"]
-    if vid == "nontraditional":
-        tags.extend(["pedigree_bias", "fit_heuristic"])
-        branch = "Recruiter notes 'unusual path' despite strong technical screen."
-    elif vid == "no_referral":
-        tags.extend(["referral_absence", "pipeline_cold"])
-        branch = "No referral signal; perceived risk elevated without skills gap."
+    if vid == "gender":
+        tags.extend(["gender_bias", "fit_heuristic"])
+        branch = "Recruiter flags 'fit' concerns not grounded in skills gap."
+    elif vid == "race":
+        tags.extend(["racial_bias", "pedigree_proxy"])
+        branch = "Subjective 'polish' discount; comparable technical screen."
+    elif vid == "socioeconomic":
+        tags.extend(["class_bias", "network_signal"])
+        branch = "Pedigree and network assumptions reduce callback despite parity."
     text = (
         f"Recruiter review (Resume Screener Agent → Recruiter Agent): "
         f"subjective {scores['subjectiveScore']:.0f}, callback {scores['callbackProbability']:.0%}."
@@ -205,11 +208,11 @@ def recruiter_node(state: SimulationState) -> dict:
 def _technical_feedback(candidate: CandidateVariant, scores: dict, tags_only=False, branch_only=False):
     tags = ["technical_depth", "problem_solving"]
     branch = ""
-    if candidate["id"] == "esl":
-        tags.extend(["communication_style", "fluency_bias"])
+    if candidate["id"] == "gender":
+        tags.extend(["communication_style", "assertiveness_bias"])
         branch = (
-            "Technical answers correct; explanation clarity scored lower due to "
-            "communication style assumptions."
+            "Technical answers solid; subjective 'communication' scored lower — "
+            "possible gendered expectation bias."
         )
     text = (
         f"Technical interview (Recruiter Agent → Technical Interviewer Agent): "
@@ -324,17 +327,18 @@ def bias_auditor_node(state: SimulationState) -> dict:
         )
 
     interventions = [
-        "Blind resume screening before recruiter review to reduce pedigree signaling.",
-        "Structured rubrics for subjective dimensions; separate communication from technical scoring.",
-        "Referral-agnostic pipeline stages until hiring manager review.",
-        "Calibration sessions when technical scores align but callback probability diverges >15%.",
+        "Blind resume review and structured rubrics before recruiter screen to reduce identity signaling.",
+        "Separate technical scoring from subjective 'culture fit' with calibrated definitions.",
+        "Diverse interview panels and bias interrupts when callback rates diverge by demographic variant.",
+        "Audit subjective language in feedback for gendered, racial, or class-coded assumptions.",
     ]
 
     fallback_feedback: FinalFeedback = {
         "summary": (
-            "Parallel simulation complete. Four equivalent-qualification variants "
-            "diverged primarily on subjective scores and callback probability while technical "
-            "scores remained comparable—indicating contextual bias rather than skills gaps."
+            "Parallel simulation complete. Four equivalent-qualification variants across gender, "
+            "race/ethnicity, and socioeconomic dimensions diverged on subjective scores and callback "
+            "probability while technical scores stayed comparable — indicating inclusivity gaps, "
+            "not skills gaps."
         ),
         "key_findings": key_findings
         or [

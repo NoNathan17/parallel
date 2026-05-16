@@ -6,42 +6,48 @@ type FinalFeedbackPanelProps = {
 
 export function FinalFeedbackPanel({ feedback }: FinalFeedbackPanelProps) {
   return (
-    <section className="rounded-2xl border border-teal-500/30 bg-gradient-to-br from-slate-900 via-slate-900 to-teal-950/40 p-6 shadow-xl">
-      <div className="mb-4 flex items-center gap-2">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-500/20 text-teal-300">
-          ◈
-        </span>
-        <h2 className="text-lg font-semibold text-white">Parallel Bias Auditor</h2>
-      </div>
+    <section className="card-glow rounded-xl p-6">
+      <h2 className="text-lg font-semibold text-[var(--foreground)]">
+        Parallel bias auditor
+      </h2>
+      <p className="mt-1 text-sm text-[var(--muted)]">
+        Summary of where outcomes diverged across variants
+      </p>
 
-      <p className="text-sm leading-relaxed text-slate-300">{feedback.summary}</p>
+      <p className="mt-4 text-sm leading-relaxed text-[var(--foreground)]">
+        {feedback.summary}
+      </p>
 
       <div className="mt-6 grid gap-6 md:grid-cols-2">
         <FeedbackList title="Key findings" items={feedback.keyFindings} />
         <FeedbackList
           title="Divergence points"
           items={feedback.divergencePoints}
-          accent="amber"
+          variant="highlight"
         />
       </div>
 
       <div className="mt-6">
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+        <h3 className="text-sm font-semibold text-[var(--foreground)]">
           Suggested interventions
         </h3>
-        <ul className="space-y-2">
+        <ul className="mt-2 space-y-2">
           {feedback.suggestedInterventions.map((item, i) => (
             <li
               key={i}
-              className="flex gap-2 text-sm text-slate-300 before:shrink-0 before:text-teal-500 before:content-['→']"
+              className="flex gap-2 text-sm leading-relaxed text-[var(--muted)]"
             >
+              <span
+                className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--primary)]"
+                aria-hidden
+              />
               {item}
             </li>
           ))}
         </ul>
       </div>
 
-      <p className="mt-6 rounded-lg border border-slate-700/80 bg-slate-800/50 px-4 py-3 font-mono text-xs text-slate-500">
+      <p className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3 text-xs leading-relaxed text-[var(--muted)]">
         {feedback.fairnessDeltaPlaceholder}
       </p>
     </section>
@@ -51,23 +57,28 @@ export function FinalFeedbackPanel({ feedback }: FinalFeedbackPanelProps) {
 function FeedbackList({
   title,
   items,
-  accent = "teal",
+  variant = "default",
 }: {
   title: string;
   items: string[];
-  accent?: "teal" | "amber";
+  variant?: "default" | "highlight";
 }) {
-  const dot = accent === "amber" ? "bg-amber-400" : "bg-teal-400";
+  const dot =
+    variant === "highlight" ? "bg-amber-400" : "bg-[var(--accent)]";
 
   return (
     <div>
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
-        {title}
-      </h3>
-      <ul className="space-y-2">
+      <h3 className="text-sm font-semibold text-[var(--foreground)]">{title}</h3>
+      <ul className="mt-2 space-y-2">
         {items.map((item, i) => (
-          <li key={i} className="flex gap-2 text-sm text-slate-300">
-            <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+          <li
+            key={i}
+            className="flex gap-2 text-sm leading-relaxed text-[var(--muted)]"
+          >
+            <span
+              className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${dot}`}
+              aria-hidden
+            />
             {item}
           </li>
         ))}

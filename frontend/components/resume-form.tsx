@@ -31,7 +31,7 @@ export function ResumeForm({
   loading,
 }: ResumeFormProps) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [mode, setMode] = useState<"paste" | "upload">("paste");
+  const [mode, setMode] = useState<"upload" | "paste">("upload");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const canSubmit =
@@ -47,31 +47,33 @@ export function ResumeForm({
   };
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 shadow-lg">
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
+    <section className="card-glow rounded-xl p-5">
+      <h2 className="text-base font-semibold text-[var(--foreground)]">
         Start simulation
       </h2>
+      <p className="mt-1 text-sm text-[var(--muted)]">
+        Upload a resume file first, or switch to paste.
+      </p>
 
-      <label className="mt-4 block">
-        <span className="text-xs text-slate-500">Target role</span>
+      <label className="mt-5 block">
+        <span className="text-sm font-medium text-[var(--foreground)]">
+          Target role
+        </span>
         <input
           type="text"
           value={targetRole}
           onChange={(e) => onTargetRoleChange(e.target.value)}
           placeholder="Software Engineering Intern"
           disabled={disabled}
-          className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white placeholder:text-slate-600 focus:border-teal-500/50 focus:outline-none focus:ring-1 focus:ring-teal-500/30 disabled:opacity-50"
+          className="mt-1.5 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-light)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 disabled:opacity-50"
         />
       </label>
 
-      <div className="mt-4 flex gap-2">
-        <TabButton
-          active={mode === "paste"}
-          onClick={() => setMode("paste")}
-          disabled={disabled}
-        >
-          Paste resume
-        </TabButton>
+      <div
+        className="mt-5 flex gap-1 rounded-lg bg-[var(--surface-muted)] p-1"
+        role="tablist"
+        aria-label="Resume input method"
+      >
         <TabButton
           active={mode === "upload"}
           onClick={() => setMode("upload")}
@@ -79,60 +81,79 @@ export function ResumeForm({
         >
           Upload file
         </TabButton>
+        <TabButton
+          active={mode === "paste"}
+          onClick={() => setMode("paste")}
+          disabled={disabled}
+        >
+          Paste text
+        </TabButton>
       </div>
 
-      {mode === "paste" ? (
-        <label className="mt-3 block">
-          <span className="text-xs text-slate-500">Resume text</span>
-          <textarea
-            value={resumeText}
-            onChange={(e) => onResumeTextChange(e.target.value)}
-            rows={10}
-            disabled={disabled}
-            placeholder="Paste resume content..."
-            className="mt-1 w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-xs leading-relaxed text-slate-200 placeholder:text-slate-600 focus:border-teal-500/50 focus:outline-none focus:ring-1 focus:ring-teal-500/30 disabled:opacity-50"
-          />
-          <button
-            type="button"
-            onClick={() => onResumeTextChange(SAMPLE_RESUME)}
-            disabled={disabled}
-            className="mt-2 text-xs text-teal-400/80 hover:text-teal-300 disabled:opacity-50"
-          >
-            Load sample resume
-          </button>
-        </label>
-      ) : (
-        <div className="mt-3">
+      {mode === "upload" ? (
+        <div className="mt-4">
           <input
             ref={fileRef}
             type="file"
             accept=".txt,.pdf,text/plain,application/pdf"
             disabled={disabled}
-            className="hidden"
+            className="sr-only"
+            id="resume-file"
             onChange={(e) => {
-              const file = e.target.files?.[0] ?? null;
-              setSelectedFile(file);
+              setSelectedFile(e.target.files?.[0] ?? null);
             }}
+          />
+          <label
+            htmlFor="resume-file"
+            className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-10 text-center transition ${
+              selectedFile
+                ? "border-[var(--primary)] bg-[var(--primary-soft)]"
+                : "border-[var(--border-strong)] bg-[var(--surface-muted)] hover:border-[var(--primary)] hover:bg-[var(--primary-soft)]/50"
+            } ${disabled ? "pointer-events-none opacity-50" : ""}`}
+          >
+            <span
+              className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--surface)] text-xl text-[var(--primary)] ring-1 ring-[var(--border)]"
+              aria-hidden
+            >
+              ↑
+            </span>
+            <span className="text-sm font-medium text-[var(--foreground)]">
+              {selectedFile ? selectedFile.name : "Choose resume file"}
+            </span>
+            <span className="text-xs text-[var(--muted)]">
+              .txt or .pdf — recommended way to start
+            </span>
+          </label>
+        </div>
+      ) : (
+        <label className="mt-4 block">
+          <span className="text-sm font-medium text-[var(--foreground)]">
+            Resume text
+          </span>
+          <textarea
+            value={resumeText}
+            onChange={(e) => onResumeTextChange(e.target.value)}
+            rows={8}
+            disabled={disabled}
+            placeholder="Paste resume content here…"
+            className="mt-1.5 w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm leading-relaxed text-[var(--foreground)] placeholder:text-[var(--muted-light)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 disabled:opacity-50"
           />
           <button
             type="button"
-            onClick={() => fileRef.current?.click()}
+            onClick={() => onResumeTextChange(SAMPLE_RESUME)}
             disabled={disabled}
-            className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-600 bg-slate-950/50 px-4 py-10 text-sm text-slate-400 transition hover:border-teal-500/40 hover:bg-slate-900 disabled:opacity-50"
+            className="mt-2 text-sm font-medium text-[var(--primary)] underline-offset-2 hover:underline disabled:opacity-50"
           >
-            <span className="text-2xl text-slate-600">↑</span>
-            <span>
-              {selectedFile ? selectedFile.name : "Choose .txt or .pdf resume"}
-            </span>
+            Load sample resume
           </button>
-        </div>
+        </label>
       )}
 
       <button
         type="button"
         onClick={handleSubmit}
         disabled={disabled || !canSubmit}
-        className="mt-5 w-full rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-teal-900/30 transition hover:from-teal-500 hover:to-cyan-500 disabled:cursor-not-allowed disabled:opacity-40"
+        className="mt-5 w-full rounded-lg bg-[var(--primary)] px-4 py-3 text-sm font-semibold text-[#0c0e14] transition hover:bg-[var(--primary-hover)] disabled:cursor-not-allowed disabled:opacity-40"
       >
         {loading ? "Running simulation…" : "Run simulation"}
       </button>
@@ -154,12 +175,14 @@ function TabButton({
   return (
     <button
       type="button"
+      role="tab"
+      aria-selected={active}
       onClick={onClick}
       disabled={disabled}
-      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+      className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition ${
         active
-          ? "bg-slate-800 text-white"
-          : "text-slate-500 hover:text-slate-300"
+          ? "bg-[var(--surface)] text-[var(--foreground)] shadow-sm"
+          : "text-[var(--muted)] hover:text-[var(--foreground)]"
       } disabled:opacity-50`}
     >
       {children}

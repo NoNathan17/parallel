@@ -1,6 +1,5 @@
 import { ScoreMetric } from "@/components/score-metric";
 import type { TimelineEvent } from "@/lib/types";
-import { variantStyle } from "@/lib/variants";
 
 type TimelineEventCardProps = {
   event: TimelineEvent;
@@ -8,50 +7,55 @@ type TimelineEventCardProps = {
 };
 
 export function TimelineEventCard({ event, isLatest }: TimelineEventCardProps) {
-  const styles = variantStyle(event.variant);
   const hasScores =
     event.technicalScore !== undefined ||
     event.subjectiveScore !== undefined;
 
   return (
     <article
-      className={`relative rounded-xl border bg-slate-900/60 p-4 backdrop-blur-sm transition-all ${
-        styles.border
-      } ${isLatest ? "ring-1 ring-teal-500/40 shadow-lg shadow-teal-950/30" : ""}`}
+      className={`card-glow rounded-xl border border-[var(--border)] p-4 transition-all ${
+        isLatest ? "ring-2 ring-[var(--primary)]/40" : ""
+      }`}
     >
       <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-xs font-medium uppercase tracking-wider text-teal-400/90">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">
             {event.stage}
           </p>
+
           {event.variant && (
-            <span
-              className={`mt-1 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${styles.badge}`}
-            >
-              {event.variant}
-            </span>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Variant:{" "}
+              <span className="font-medium text-[var(--foreground)]">
+                {event.variant}
+              </span>
+            </p>
           )}
         </div>
-        <time className="font-mono text-[10px] text-slate-500">
+
+        <time className="text-xs text-[var(--muted-light)]">
           {new Date(event.timestamp).toLocaleTimeString()}
         </time>
       </div>
 
       {(event.sourceAgent || event.targetAgent) && (
-        <p className="mb-2 font-mono text-xs text-slate-500">
+        <p className="mb-2 text-xs text-[var(--muted)]">
           {event.sourceAgent}
           {event.sourceAgent && event.targetAgent ? " → " : ""}
           {event.targetAgent}
         </p>
       )}
 
-      <p className="text-sm font-medium text-slate-100">{event.message}</p>
-      <p className="mt-2 text-sm leading-relaxed text-slate-400">
+      <p className="text-sm font-medium text-[var(--foreground)]">
+        {event.message}
+      </p>
+
+      <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
         {event.stageFeedback}
       </p>
 
       {event.branchReason && (
-        <p className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-200/90">
+        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
           {event.branchReason}
         </p>
       )}
@@ -61,9 +65,9 @@ export function TimelineEventCard({ event, isLatest }: TimelineEventCardProps) {
           {event.assumptionTags.map((tag) => (
             <span
               key={tag}
-              className="rounded-md bg-slate-800 px-2 py-0.5 font-mono text-[10px] text-slate-400"
+              className="rounded-md bg-[var(--surface-muted)] px-2 py-0.5 text-xs text-[var(--muted)]"
             >
-              {tag}
+              {tag.replace(/_/g, " ")}
             </span>
           ))}
         </div>

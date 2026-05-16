@@ -10,7 +10,7 @@ def _build_snapshot(parsed: ParsedResume, signal_note: str) -> str:
         f"Education: {'; '.join(parsed['education'])}",
         f"Projects: {'; '.join(parsed['projects'])}",
         f"Experience: {'; '.join(parsed['experience'])}",
-        f"Contextual signal (evaluation only): {signal_note}",
+        f"Inclusivity signal (evaluation context only): {signal_note}",
     ]
     return "\n".join(sections)
 
@@ -23,50 +23,46 @@ def create_candidate_variants(parsed_resume: ParsedResume, target_role: str) -> 
         {
             "id": "baseline",
             "variant": "Baseline",
-            "signal": "Standard professional background with strong referral and traditional path",
+            "signal": "Reference profile with dominant-norm hiring signals; traditional path and strong network",
             "hidden_context": {
+                "dimension": "baseline",
                 "referral": True,
-                "background_type": "traditional",
-                "esl": False,
                 "role": role_note,
             },
-            "signal_note": "Traditional CS path; employee referral on file",
+            "signal_note": "Traditional elite-path signals; employee referral; default hiring heuristic",
         },
         {
-            "id": "nontraditional",
-            "variant": "Nontraditional Background",
-            "signal": "Equivalent skills via bootcamp and career pivot from unrelated field",
+            "id": "gender",
+            "variant": "Gender",
+            "signal": "Equivalent qualifications; gender-associated name and affiliation signals that may trigger stereotyping",
             "hidden_context": {
+                "dimension": "gender",
                 "referral": False,
-                "background_type": "nontraditional",
-                "esl": False,
                 "role": role_note,
             },
-            "signal_note": "Bootcamp graduate; career changer; no Ivy League signaling",
+            "signal_note": "Signals associated with women in tech contexts; same projects and tenure",
         },
         {
-            "id": "no_referral",
-            "variant": "No Referral",
-            "signal": "Same qualifications as baseline but no internal referral or warm introduction",
+            "id": "race",
+            "variant": "Race & Ethnicity",
+            "signal": "Equivalent qualifications; racial/ethnic identity signals (name, community, school context)",
             "hidden_context": {
+                "dimension": "race_ethnicity",
                 "referral": False,
-                "background_type": "traditional",
-                "esl": False,
                 "role": role_note,
             },
-            "signal_note": "Cold application; no employee referral",
+            "signal_note": "Underrepresented racial/ethnic identity signals; HBCU or community org context",
         },
         {
-            "id": "esl",
-            "variant": "ESL Communication Style",
-            "signal": "Strong technical background; non-native English communication patterns in interview",
+            "id": "socioeconomic",
+            "variant": "Socioeconomic Background",
+            "signal": "Equivalent qualifications; first-generation and low-network socioeconomic signals",
             "hidden_context": {
-                "referral": True,
-                "background_type": "traditional",
-                "esl": True,
+                "dimension": "socioeconomic",
+                "referral": False,
                 "role": role_note,
             },
-            "signal_note": "First-language fluency differs; thoughtful but less idiomatic verbal delivery",
+            "signal_note": "First-gen college; regional public university; no legacy or elite-network cues",
         },
     ]
 
