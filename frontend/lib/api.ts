@@ -52,7 +52,8 @@ export async function generateVariants(candidateId: string): Promise<{
   return request(`/api/candidates/${candidateId}/variants`, { method: "POST" });
 }
 
-export async function startSimulation(
+/** Create simulation in pending state — call beginSimulation after stream connects */
+export async function createSimulation(
   candidateId: string,
   variantIds?: string[],
   interventions?: InterventionFlags
@@ -73,6 +74,15 @@ export async function startSimulation(
   });
 }
 
+export async function beginSimulation(
+  simulationId: string
+): Promise<{ simulation: { id: string; status: string } }> {
+  return request(`/api/simulations/${simulationId}/start`, { method: "POST" });
+}
+
+/** @deprecated use createSimulation — kept for compatibility */
+export const startSimulation = createSimulation;
+
 export async function replaySimulation(
   simulationId: string,
   interventions: InterventionFlags
@@ -86,6 +96,11 @@ export async function replaySimulation(
 
 export function getEventsUrl(simulationId: string): string {
   return `${API_URL}/api/simulations/${simulationId}/events`;
+}
+
+export function getWebSocketUrl(simulationId: string): string {
+  const base = API_URL.replace(/^http/, "ws");
+  return `${base}/api/simulations/${simulationId}/ws`;
 }
 
 export { API_URL };

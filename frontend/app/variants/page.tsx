@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { generateVariants, getCandidate, getVariants, startSimulation } from "@/lib/api";
+import { createSimulation, generateVariants, getCandidate, getVariants } from "@/lib/api";
 import type { CandidateVariant } from "@/lib/types";
 
 function VariantsContent() {
@@ -39,7 +39,7 @@ function VariantsContent() {
     setStarting(true);
     setError(null);
     try {
-      const res = await startSimulation(
+      const res = await createSimulation(
         candidateId,
         variants.map((v) => v.id)
       );

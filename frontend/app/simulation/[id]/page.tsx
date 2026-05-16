@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { AgentFeed } from "@/components/timeline/AgentFeed";
 import { BiasAuditorPanel } from "@/components/timeline/BiasAuditorPanel";
@@ -13,6 +13,7 @@ import type { CandidateVariant, InterventionFlags } from "@/lib/types";
 
 function SimulationContent() {
   const params = useParams();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const simulationId = params.id as string;
   const candidateId = searchParams.get("candidateId") ?? "";
@@ -25,7 +26,6 @@ function SimulationContent() {
     hidden_recruiter_notes: false,
     standardized_questions: false,
   });
-  const [replayId, setReplayId] = useState<string | null>(null);
   const [replayLoading, setReplayLoading] = useState(false);
 
   useEffect(() => {
@@ -44,18 +44,17 @@ function SimulationContent() {
     setReplayLoading(true);
     try {
       const res = await replaySimulation(simulationId, interventions);
-      setReplayId(res.simulation.id);
-      window.location.href = `/simulation/${res.simulation.id}?candidateId=${candidateId}&replay=1`;
+      router.push(`/simulation/${res.simulation.id}?candidateId=${candidateId}&replay=1`);
     } catch {
       setReplayLoading(false);
     }
   };
 
-  const activeId = replayId ?? simulationId;
-
   const headline = stream.completed
     ? "Timelines have diverged — the system changed, not the skill."
-    : "These candidates are technically identical.";
+    : stream.started
+      ? "Watch the sacred timeline branch in real time…"
+      : "These candidates are technically identical.";
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -65,7 +64,10 @@ function SimulationContent() {
 
       <h1 className="mb-1 text-2xl font-semibold tracking-tight">{headline}</h1>
       <p className="mb-8 font-mono text-xs text-zinc-500">
-        Simulation {activeId.slice(0, 8)}… · {stream.connected ? "live" : "connecting"}
+        Simulation {simulationId.slice(0, 8)}… ·{" "}
+        {stream.connected
+          ? `live · ${stream.transport === "websocket" ? "WebSocket" : "SSE"}${stream.queueLength > 0 ? ` · ${stream.queueLength} queued` : ""}`
+          : "connecting…"}
       </p>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -75,8 +77,14 @@ function SimulationContent() {
             branches={stream.branchEvents}
             variantIds={variantIds}
             variantLabels={variantLabels}
+            trunkVisible={stream.trunkVisible}
           />
-          <AgentFeed evaluations={stream.evaluations} />
+          <AgentFeed
+            messages={stream.messages}
+            evaluations={stream.evaluations}
+            thinking={stream.thinking}
+            activeAgent={stream.activeAgent}
+          />
         </div>
 
         <div className="space-y-4">

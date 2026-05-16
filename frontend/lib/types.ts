@@ -63,6 +63,20 @@ export interface SimulationEvent {
   payload: Record<string, unknown>;
 }
 
+export interface AgentMessage {
+  from_agent: string;
+  to_agent: string;
+  message: string;
+  tone?: string;
+  variant_id?: string;
+  variant_label?: string;
+}
+
+export interface AgentThinking {
+  agent: string;
+  message: string;
+}
+
 export interface AgentEvaluation {
   agent: string;
   variant_id: string;
@@ -94,6 +108,8 @@ export interface BranchEvent {
   signal: string;
   agent: string;
   confidence_delta: number;
+  branch_x?: number;
+  branch_y?: number;
 }
 
 export interface BiasAudit {
