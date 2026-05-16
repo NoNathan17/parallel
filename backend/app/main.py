@@ -6,11 +6,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.router import api_router
 from app.config import get_settings
 from app.graph.builder import build_graph
+from app.graph.simulation_builder import build_simulation_graph
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.graph = build_graph()
+    app.state.simulation_graph = build_simulation_graph()
     yield
 
 
