@@ -1,28 +1,41 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0c0e14;
-  --background-subtle: #12151f;
-  --foreground: #eef0f6;
-  --muted: #a3adc2;
-  --muted-light: #7c869e;
-  --surface: #161a26;
-  --surface-elevated: #1e2433;
-  --surface-muted: #222836;
-  --border: #2e3648;
-  --border-strong: #3d4760;
-  --primary: #8b7cf8;
-  --primary-hover: #a599ff;
-  --primary-soft: rgba(139, 124, 248, 0.14);
-  --accent: #5eead4;
-  --accent-soft: rgba(94, 234, 212, 0.1);
-  --focus-ring: #8b7cf8;
-  --success: #6ee7b7;
-  --success-bg: rgba(110, 231, 183, 0.12);
-  --error: #fca5a5;
-  --error-bg: rgba(252, 165, 165, 0.1);
-  --gradient-start: rgba(139, 124, 248, 0.08);
-  --gradient-end: rgba(94, 234, 212, 0.05);
+  /* Neutrals */
+  --background: #faf8fc;
+  --background-subtle: #f3f0f6;
+  --foreground: #2d2a33;
+  --muted: #6b6574;
+  --muted-light: #928d9a;
+  --surface: #ffffff;
+  --surface-elevated: #ffffff;
+  --surface-muted: #f7f4fa;
+  --border: #e5dfea;
+  --border-strong: #d4cdd8;
+
+  /* Core brand — blue primary, lavender accent */
+  --primary: #a2d2ff;
+  --primary-hover: #8bc4f7;
+  --primary-soft: #e8f4ff;
+  --on-primary: #2d2a33;
+
+  --accent: #cdb4db;
+  --accent-soft: #f0e8f4;
+
+  /* Pastel palette (variants & sparing highlights) */
+  --pastel-lavender: #cdb4db;
+  --pastel-pink: #ffc8dd;
+  --pastel-rose: #ffafcc;
+  --pastel-sky: #bde0fe;
+  --pastel-blue: #a2d2ff;
+
+  --focus-ring: #a2d2ff;
+  --success: #4d8a6a;
+  --success-bg: #e8f5ee;
+  --error: #b85c6a;
+  --error-bg: #fceef0;
+  --branch: #ffafcc;
+  --branch-bg: #fff5f8;
 }
 
 @theme inline {
@@ -59,12 +72,7 @@ body {
 }
 
 .card-glow {
-  background: linear-gradient(
-    145deg,
-    var(--surface) 0%,
-    var(--surface-elevated) 100%
-  );
-  box-shadow:
-    0 0 0 1px var(--border),
-    0 4px 24px rgba(0, 0, 0, 0.25);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(45, 42, 51, 0.04);
 }

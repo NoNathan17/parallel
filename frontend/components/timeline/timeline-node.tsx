@@ -11,32 +11,30 @@ function TimelineNodeComponent({
   selected,
 }: NodeProps<Node<TimelineNodeData>>) {
   const d = data;
-  const glow = d.active || selected;
+  const active = d.active || selected;
 
   return (
     <motion.div
-      initial={{ scale: 0.85, opacity: 0 }}
-      animate={{
-        scale: glow ? 1.05 : 1,
-        opacity: 1,
-        boxShadow: glow
-          ? `0 0 24px ${d.color}66, 0 0 0 2px ${d.color}`
-          : d.branched
-            ? `0 0 16px rgba(251, 191, 36, 0.35)`
-            : "0 0 0 1px var(--border)",
-      }}
+      initial={{ scale: 0.95, opacity: 0 }}
+      animate={{ scale: active ? 1.02 : 1, opacity: 1 }}
       transition={{ type: "spring", stiffness: 320, damping: 24 }}
-      className="min-w-[120px] max-w-[150px] rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2.5"
-      style={{ borderColor: d.branched ? "#fbbf24" : undefined }}
+      className="min-w-[120px] max-w-[150px] rounded-xl border bg-[var(--surface)] px-3 py-2.5"
+      style={{
+        borderColor: d.branched
+          ? "var(--branch)"
+          : active
+            ? d.color
+            : "var(--border)",
+        borderWidth: active || d.branched ? 2 : 1,
+      }}
     >
-      <Handle type="target" position={Position.Left} className="!bg-[var(--muted)] !w-2 !h-2" />
-      <Handle type="source" position={Position.Right} className="!bg-[var(--primary)] !w-2 !h-2" />
+      <Handle type="target" position={Position.Left} className="!h-2 !w-2 !bg-[var(--muted)]" />
+      <Handle type="source" position={Position.Right} className="!h-2 !w-2 !bg-[var(--primary)]" />
 
       <motion.div
         className="mb-1 h-1 rounded-full"
         style={{ backgroundColor: d.color }}
-        animate={{ opacity: glow ? [0.5, 1, 0.5] : 1 }}
-        transition={{ repeat: glow ? Infinity : 0, duration: 1.2 }}
+        animate={{ opacity: active ? 1 : 0.7 }}
       />
 
       <p className="text-xs font-semibold leading-tight text-[var(--foreground)]">
@@ -60,7 +58,7 @@ function TimelineNodeComponent({
       )}
 
       {d.branched && d.branchReason && (
-        <p className="mt-2 line-clamp-2 text-[9px] leading-snug text-amber-200/90">
+        <p className="mt-2 line-clamp-2 text-[9px] leading-snug text-[var(--muted)]">
           {d.branchReason}
         </p>
       )}
@@ -79,7 +77,7 @@ function ScorePill({
 }) {
   if (value === undefined) return null;
   return (
-    <span className="rounded bg-[var(--surface-muted)] px-1 py-0.5 text-[9px] font-mono text-[var(--muted)]">
+    <span className="rounded bg-[var(--surface-muted)] px-1 py-0.5 font-mono text-[9px] text-[var(--muted)]">
       {label}:{value}
       {suffix}
     </span>

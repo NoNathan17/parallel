@@ -153,7 +153,7 @@ export function ResumeForm({
         type="button"
         onClick={handleSubmit}
         disabled={disabled || !canSubmit}
-        className="mt-5 w-full rounded-lg bg-[var(--primary)] px-4 py-3 text-sm font-semibold text-[#0c0e14] transition hover:bg-[var(--primary-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+        className="mt-5 w-full rounded-lg bg-[var(--primary)] px-4 py-3 text-sm font-semibold text-[var(--on-primary)] transition hover:bg-[var(--primary-hover)] disabled:cursor-not-allowed disabled:opacity-40"
       >
         {loading ? "Running simulation…" : "Run simulation"}
       </button>

@@ -35,11 +35,11 @@ export function StepIndicator() {
             )}
             <Link
               href={step.href}
-              className={`rounded-full px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide transition sm:px-3 sm:text-xs ${
+              className={`rounded-full px-2.5 py-1 text-[10px] font-medium transition sm:px-3 sm:text-xs ${
                 active
-                  ? "bg-[var(--primary)] text-[#0c0e14]"
+                  ? "bg-[var(--pastel-pink)] text-[var(--on-primary)]"
                   : done
-                    ? "text-[var(--primary)] hover:bg-[var(--primary-soft)]"
+                    ? "text-[var(--foreground)] hover:bg-[var(--surface-muted)]"
                     : "text-[var(--muted)] hover:text-[var(--foreground)]"
               }`}
             >

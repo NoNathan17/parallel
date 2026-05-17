@@ -78,7 +78,7 @@ export default function VariantsPage() {
         </motion.div>
 
         {error && (
-          <p className="mt-6 rounded-xl border border-red-500/30 bg-[var(--error-bg)] px-4 py-3 text-center text-sm text-[var(--error)]">
+          <p className="mt-6 rounded-xl border border-[var(--error)]/25 bg-[var(--error-bg)] px-4 py-3 text-center text-sm text-[var(--error)]">
             {error}
           </p>
         )}
@@ -120,7 +120,7 @@ export default function VariantsPage() {
                   className="card-glow rounded-2xl border border-[var(--border)] p-5"
                   style={{
                     borderLeftWidth: 4,
-                    borderLeftColor: catalog?.color ?? "#8b7cf8",
+                    borderLeftColor: catalog?.color ?? "#a2d2ff",
                   }}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -159,7 +159,7 @@ export default function VariantsPage() {
             type="button"
             disabled={loading || candidates.length === 0}
             onClick={handleContinue}
-            className="rounded-xl bg-[var(--primary)] px-10 py-3 text-sm font-semibold text-[#0c0e14] transition hover:bg-[var(--primary-hover)] disabled:opacity-40"
+            className="rounded-xl bg-[var(--primary)] px-10 py-3 text-sm font-semibold text-[var(--on-primary)] transition hover:bg-[var(--primary-hover)] disabled:opacity-40"
           >
             Run simulation
           </button>

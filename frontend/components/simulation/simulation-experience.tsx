@@ -199,7 +199,7 @@ export function SimulationExperience() {
             {simUi.done && (
               <Link
                 href="/analysis"
-                className="rounded-lg bg-[var(--primary)] px-4 py-1.5 text-sm font-semibold text-[#0c0e14]"
+                className="rounded-lg bg-[var(--primary)] px-4 py-1.5 text-sm font-semibold text-[var(--on-primary)]"
               >
                 View analysis →
               </Link>
@@ -208,7 +208,7 @@ export function SimulationExperience() {
         </div>
 
         {error && (
-          <p className="mb-4 rounded-xl border border-red-500/30 bg-[var(--error-bg)] px-4 py-3 text-sm text-[var(--error)]">
+          <p className="mb-4 rounded-xl border border-[var(--error)]/25 bg-[var(--error-bg)] px-4 py-3 text-sm text-[var(--error)]">
             {error}
           </p>
         )}

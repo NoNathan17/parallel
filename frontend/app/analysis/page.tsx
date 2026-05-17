@@ -63,7 +63,7 @@ export default function AnalysisPage() {
             animate={{ opacity: 1 }}
             className="mt-8 rounded-2xl border border-[var(--accent)]/40 bg-[var(--accent-soft)] p-5"
           >
-            <h2 className="text-sm font-semibold text-[var(--accent)]">
+            <h2 className="text-sm font-semibold text-[var(--foreground)]">
               Intervention impact
             </h2>
             <p className="mt-2 text-sm text-[var(--muted)]">
@@ -107,7 +107,7 @@ export default function AnalysisPage() {
               saveFlowSession({ simulationComplete: false, finalFeedback: undefined });
               router.push("/profile");
             }}
-            className="rounded-xl bg-[var(--primary)] px-8 py-3 text-sm font-semibold text-[#0c0e14] hover:bg-[var(--primary-hover)]"
+            className="rounded-xl bg-[var(--primary)] px-8 py-3 text-sm font-semibold text-[var(--on-primary)] hover:bg-[var(--primary-hover)]"
           >
             Start new profile
           </button>

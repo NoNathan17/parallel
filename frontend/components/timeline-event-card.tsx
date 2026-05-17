@@ -59,7 +59,7 @@ export function TimelineEventCard({ event, isLatest }: TimelineEventCardProps) {
       )}
 
       {event.branchReason && (
-        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+        <p className="mt-3 rounded-lg border border-[var(--branch)]/40 bg-[var(--branch-bg)] px-3 py-2 text-sm text-[var(--foreground)]">
           {event.branchReason}
         </p>
       )}

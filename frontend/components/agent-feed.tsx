@@ -64,7 +64,7 @@ export function AgentFeed({ state, filterCandidateId }: AgentFeedProps) {
               <div
                 className="rounded-lg"
                 style={{
-                  borderLeft: `3px solid ${VARIANT_LANE_COLORS[msg.candidateId ?? "baseline"] ?? "#8b7cf8"}`,
+                  borderLeft: `3px solid ${VARIANT_LANE_COLORS[msg.candidateId ?? "baseline"] ?? "#a2d2ff"}`,
                 }}
               >
                 <AgentMessageCard

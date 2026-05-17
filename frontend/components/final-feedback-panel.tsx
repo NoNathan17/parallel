@@ -92,7 +92,7 @@ function FeedbackList({
   variant?: "default" | "highlight";
 }) {
   const dot =
-    variant === "highlight" ? "bg-amber-400" : "bg-[var(--accent)]";
+    variant === "highlight" ? "bg-[var(--pastel-rose)]" : "bg-[var(--accent)]";
 
   return (
     <div>

@@ -54,7 +54,7 @@ export function NodeInspector({ state, selectedNodeId }: NodeInspectorProps) {
             <span
               className="mt-1 h-3 w-3 shrink-0 rounded-full"
               style={{
-                backgroundColor: VARIANT_LANE_COLORS[candidate.id] ?? "#8b7cf8",
+                backgroundColor: VARIANT_LANE_COLORS[candidate.id] ?? "#a2d2ff",
               }}
             />
             <motion.div>
@@ -80,7 +80,7 @@ export function NodeInspector({ state, selectedNodeId }: NodeInspectorProps) {
           )}
 
           {branch && (
-            <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+            <p className="mt-3 rounded-lg border border-[var(--branch)]/40 bg-[var(--branch-bg)] px-3 py-2 text-xs text-[var(--foreground)]">
               {branch.branchReason}
             </p>
           )}

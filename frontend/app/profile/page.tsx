@@ -174,7 +174,7 @@ function ProfilePageContent() {
             type="button"
             disabled={!canContinue}
             onClick={handleContinue}
-            className="mt-8 w-full rounded-xl bg-[var(--primary)] py-3.5 text-sm font-semibold text-[#0c0e14] transition hover:bg-[var(--primary-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+            className="mt-8 w-full rounded-xl bg-[var(--primary)] py-3.5 text-sm font-semibold text-[var(--on-primary)] transition hover:bg-[var(--primary-hover)] disabled:cursor-not-allowed disabled:opacity-40"
           >
             Continue to variants
           </button>

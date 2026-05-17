@@ -134,10 +134,10 @@ export const AGENT_STREAM_TYPES = new Set([
 ]);
 
 export const VARIANT_LANE_COLORS: Record<string, string> = {
-  baseline: "#8b7cf8",
-  gender: "#f472b6",
-  race: "#fbbf24",
-  socioeconomic: "#5eead4",
+  baseline: "#a2d2ff",
+  gender: "#ffc8dd",
+  race: "#cdb4db",
+  socioeconomic: "#bde0fe",
 };
 
 export const VARIANT_LABELS: Record<string, string> = {

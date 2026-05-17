@@ -34,7 +34,7 @@ export function InterventionControls({
   };
 
   return (
-    <section className="rounded-xl border border-[var(--border)] bg-[var(--surface-muted)]/40 p-4">
+    <section className="rounded-xl border border-[var(--border)] bg-[var(--surface-muted)] p-4">
       <h3 className="text-sm font-semibold text-[var(--foreground)]">
         Interventions
       </h3>

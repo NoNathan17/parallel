@@ -84,7 +84,7 @@ export function buildTimelineGraph(state: SimulationUIState): {
     source: "origin",
     target: "parse",
     animated: state.activeStageIndex === 0,
-    style: { stroke: "#8b7cf8", strokeWidth: 2 },
+    style: { stroke: "#a2d2ff", strokeWidth: 2 },
   });
 
   nodes.push({
@@ -96,7 +96,7 @@ export function buildTimelineGraph(state: SimulationUIState): {
       sublabel: `${state.candidates.length || 4} timelines`,
       nodeKind: "fork",
       stageIndex: 1,
-      color: "#8b7cf8",
+      color: "#a2d2ff",
       active: state.activeStageIndex === 1,
       branched: false,
       audited: false,
@@ -107,14 +107,14 @@ export function buildTimelineGraph(state: SimulationUIState): {
     source: "parse",
     target: "fork",
     animated: state.activeStageIndex === 1,
-    style: { stroke: "#8b7cf8", strokeWidth: 2 },
+    style: { stroke: "#a2d2ff", strokeWidth: 2 },
   });
 
   const hiringStages = [2, 3, 4, 5, 6];
 
   state.candidates.forEach((c) => {
     const laneY = centerY - totalHeight / 2 + c.laneIndex * LANE_HEIGHT;
-    const color = VARIANT_LANE_COLORS[c.id] ?? "#8b7cf8";
+    const color = VARIANT_LANE_COLORS[c.id] ?? "#a2d2ff";
     const hasBranch = state.branches.some((b) => b.candidateId === c.id);
 
     hiringStages.forEach((si, idx) => {
@@ -161,7 +161,7 @@ export function buildTimelineGraph(state: SimulationUIState): {
         target: id,
         animated: active,
         style: {
-          stroke: branch ? "#fbbf24" : color,
+          stroke: branch ? "#ffafcc" : color,
           strokeWidth: branch ? 3 : hasBranch ? 2 : 1.5,
           strokeDasharray: branch ? "8 4" : undefined,
         },
