@@ -1,4 +1,4 @@
-"""Stream hiring-agent conversation turns and structured scores."""
+"""Stream hiring-agent conversation turns with unified timeline events."""
 
 from __future__ import annotations
 
@@ -7,15 +7,14 @@ import logging
 import re
 import uuid
 from collections.abc import AsyncIterator, Callable
-from datetime import datetime, timezone
 from typing import Any
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from langgraph.config import get_stream_writer
 
 from app.agents.prompts import SCORES_PROMPT, STAGE_PROMPTS
 from app.llm import get_chat_model, is_llm_enabled
 from app.schemas import CandidateVariant, SimulationState, TimelineEvent, TranscriptEntry
+from app.simulation.emitter import require_emitter
 
 logger = logging.getLogger(__name__)
 
@@ -24,17 +23,8 @@ Scorer = Callable[[CandidateVariant], ScoreBundle]
 FeedbackFn = Callable[..., str | list[str]]
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
 def _new_message_id() -> str:
     return str(uuid.uuid4())
-
-
-def _emit(writer: Any, payload: dict[str, Any]) -> None:
-    if writer is not None:
-        writer(payload)
 
 
 def _format_transcript(entries: list[TranscriptEntry]) -> str:
@@ -55,34 +45,10 @@ def _build_handoff_text(
     stage_name: str,
 ) -> str:
     return (
-        f"@{target_agent.replace(' Agent', '')} — handing off **{candidate['variant']}** "
-        f"({candidate['name']}) for **{target_role}** at **{stage_name}**. "
+        f"@{target_agent.replace(' Agent', '')} — handing off {candidate['variant']} "
+        f"({candidate['name']}) for {target_role} at {stage_name}. "
         f"Equivalent qualifications; evaluation context: {candidate['signal']}"
     )
-
-
-def _timeline_base(
-    *,
-    event_type: str,
-    stage: str,
-    stage_index: int,
-    source_agent: str,
-    target_agent: str,
-    candidate: CandidateVariant | None = None,
-) -> dict[str, Any]:
-    evt: dict[str, Any] = {
-        "type": event_type,
-        "stage": stage,
-        "stageIndex": stage_index,
-        "sourceAgent": source_agent,
-        "targetAgent": target_agent,
-        "timestamp": _now(),
-    }
-    if candidate:
-        evt["candidateId"] = candidate["id"]
-        evt["candidateName"] = candidate["name"]
-        evt["variant"] = candidate["variant"]
-    return evt
 
 
 def _parse_scores_json(raw: str) -> dict[str, Any] | None:
@@ -192,11 +158,18 @@ async def stream_agent_turn(
     fallback_feedback: FeedbackFn,
     prior_scores: dict[str, ScoreBundle] | None = None,
 ) -> tuple[ScoreBundle, list[TranscriptEntry], TimelineEvent]:
-    """Run one agent turn: handoff → streamed reasoning → scores → evaluation event."""
-    writer = get_stream_writer()
+    """Handoff → streamed reasoning → canonical agent_message + branch/score events."""
+    emitter = require_emitter()
     target_role = state["target_role"]
     transcript = list(state.get("agent_transcript") or [])
     fallback = fallback_scorer(candidate)
+
+    emitter.candidate_stage_started(
+        candidate=candidate,
+        stage=stage_name,
+        stage_index=stage_index,
+        target_agent=target_agent,
+    )
 
     handoff_id = _new_message_id()
     handoff_text = _build_handoff_text(
@@ -207,46 +180,42 @@ async def stream_agent_turn(
         stage_name=stage_name,
     )
 
-    _emit(
-        writer,
-        {
-            **_timeline_base(
-                event_type="agent_message_start",
-                stage=stage_name,
-                stage_index=stage_index,
-                source_agent=source_agent,
-                target_agent=target_agent,
-                candidate=candidate,
-            ),
-            "messageId": handoff_id,
-            "speaker": source_agent,
-            "messageRole": "handoff",
-            "content": "",
-        },
+    emitter.stream_message_start(
+        message_id=handoff_id,
+        speaker=source_agent,
+        message_role="handoff",
+        stage=stage_name,
+        stage_index=stage_index,
+        source_agent=source_agent,
+        target_agent=target_agent,
+        candidate=candidate,
     )
-    _emit(
-        writer,
-        {
-            "type": "agent_message_delta",
-            "messageId": handoff_id,
-            "delta": handoff_text,
-            "stage": stage_name,
-            "stageIndex": stage_index,
-        },
+    emitter.stream_message_delta(
+        message_id=handoff_id,
+        delta=handoff_text,
+        stage=stage_name,
+        stage_index=stage_index,
+        speaker=source_agent,
+        candidate=candidate,
     )
-    _emit(
-        writer,
-        {
-            "type": "agent_message_end",
-            "messageId": handoff_id,
-            "speaker": source_agent,
-            "messageRole": "handoff",
-            "content": handoff_text,
-            "stage": stage_name,
-            "stageIndex": stage_index,
-            "candidateId": candidate["id"],
-            "variant": candidate["variant"],
-        },
+    emitter.stream_message_end(
+        message_id=handoff_id,
+        speaker=source_agent,
+        message_role="handoff",
+        content=handoff_text,
+        stage=stage_name,
+        stage_index=stage_index,
+        candidate=candidate,
+    )
+    emitter.agent_message(
+        candidate=candidate,
+        stage=stage_name,
+        stage_index=stage_index,
+        source_agent=source_agent,
+        target_agent=target_agent,
+        message=handoff_text,
+        message_role="handoff",
+        message_id=handoff_id,
     )
 
     new_transcript: list[TranscriptEntry] = [
@@ -286,38 +255,26 @@ async def stream_agent_turn(
             )
         )
 
-        _emit(
-            writer,
-            {
-                **_timeline_base(
-                    event_type="agent_message_start",
-                    stage=stage_name,
-                    stage_index=stage_index,
-                    source_agent=source_agent,
-                    target_agent=target_agent,
-                    candidate=candidate,
-                ),
-                "messageId": reasoning_id,
-                "speaker": target_agent,
-                "messageRole": "reasoning",
-                "content": "",
-            },
+        emitter.stream_message_start(
+            message_id=reasoning_id,
+            speaker=target_agent,
+            message_role="reasoning",
+            stage=stage_name,
+            stage_index=stage_index,
+            source_agent=source_agent,
+            target_agent=target_agent,
+            candidate=candidate,
         )
 
         async for delta in _stream_llm_text([system, human]):
             reasoning += delta
-            _emit(
-                writer,
-                {
-                    "type": "agent_message_delta",
-                    "messageId": reasoning_id,
-                    "delta": delta,
-                    "stage": stage_name,
-                    "stageIndex": stage_index,
-                    "speaker": target_agent,
-                    "candidateId": candidate["id"],
-                    "variant": candidate["variant"],
-                },
+            emitter.stream_message_delta(
+                message_id=reasoning_id,
+                delta=delta,
+                stage=stage_name,
+                stage_index=stage_index,
+                speaker=target_agent,
+                candidate=candidate,
             )
 
         scores_raw = await _extract_scores(
@@ -327,8 +284,8 @@ async def stream_agent_turn(
             target_role=target_role,
             fallback=fallback,
         )
-        assumption_tags = scores_raw.pop("_assumption_tags", [])
-        branch_reason = scores_raw.pop("_branch_reason", "")
+        assumption_tags = list(scores_raw.pop("_assumption_tags", []))
+        branch_reason = str(scores_raw.pop("_branch_reason", ""))
         scores: ScoreBundle = scores_raw
     else:
         reasoning = fallback_feedback(candidate, fallback)  # type: ignore[call-arg]
@@ -342,52 +299,74 @@ async def stream_agent_turn(
         if not isinstance(branch_reason, str):
             branch_reason = ""
 
-        _emit(
-            writer,
-            {
-                **_timeline_base(
-                    event_type="agent_message_start",
-                    stage=stage_name,
-                    stage_index=stage_index,
-                    source_agent=source_agent,
-                    target_agent=target_agent,
-                    candidate=candidate,
-                ),
-                "messageId": reasoning_id,
-                "speaker": target_agent,
-                "messageRole": "reasoning",
-                "content": "",
-            },
+        emitter.stream_message_start(
+            message_id=reasoning_id,
+            speaker=target_agent,
+            message_role="reasoning",
+            stage=stage_name,
+            stage_index=stage_index,
+            source_agent=source_agent,
+            target_agent=target_agent,
+            candidate=candidate,
         )
-        _emit(
-            writer,
-            {
-                "type": "agent_message_delta",
-                "messageId": reasoning_id,
-                "delta": reasoning,
-                "stage": stage_name,
-                "stageIndex": stage_index,
-                "speaker": target_agent,
-            },
+        emitter.stream_message_delta(
+            message_id=reasoning_id,
+            delta=reasoning,
+            stage=stage_name,
+            stage_index=stage_index,
+            speaker=target_agent,
+            candidate=candidate,
         )
 
-    _emit(
-        writer,
-        {
-            "type": "agent_message_end",
-            "messageId": reasoning_id,
-            "speaker": target_agent,
-            "messageRole": "reasoning",
-            "content": reasoning,
-            "stage": stage_name,
-            "stageIndex": stage_index,
-            "candidateId": candidate["id"],
-            "variant": candidate["variant"],
-            "technicalScore": scores["technicalScore"],
-            "subjectiveScore": scores["subjectiveScore"],
-            "confidence": scores["confidence"],
-            "callbackProbability": scores["callbackProbability"],
-        },
+    prior_ref = emitter.prior_scores.get(candidate["id"])
+    baseline_ref = emitter.baseline_scores_by_stage.get(stage_index)
+
+    emitter.stream_message_end(
+        message_id=reasoning_id,
+        speaker=target_agent,
+        message_role="reasoning",
+        content=reasoning,
+        stage=stage_name,
+        stage_index=stage_index,
+        candidate=candidate,
+        scores=scores,
+    )
+
+    score_fields = {
+        "technicalScore": scores["technicalScore"],
+        "subjectiveScore": scores["subjectiveScore"],
+        "confidence": scores["confidence"],
+        "callbackProbability": scores["callbackProbability"],
+    }
+    emitter.agent_message(
+        candidate=candidate,
+        stage=stage_name,
+        stage_index=stage_index,
+        source_agent=source_agent,
+        target_agent=target_agent,
+        message=reasoning,
+        message_role="reasoning",
+        scores=score_fields,
+        prior_reference=prior_ref,
+        baseline_reference=baseline_ref,
+        assumption_tags=assumption_tags,
+        branch_reason=branch_reason if isinstance(branch_reason, str) else "",
+        message_id=reasoning_id,
+    )
+
+    if candidate["id"] == "baseline":
+        emitter.set_baseline_for_stage(stage_index, scores)
+
+    emitter.post_stage_analysis(
+        candidate=candidate,
+        stage=stage_name,
+        stage_index=stage_index,
+        source_agent=source_agent,
+        target_agent=target_agent,
+        scores=scores,
+        assumption_tags=assumption_tags,
+        branch_reason=branch_reason if isinstance(branch_reason, str) else "",
+        baseline_scores=baseline_ref,
     )
 
     new_transcript.append(
@@ -399,6 +378,9 @@ async def stream_agent_turn(
         }
     )
 
+    from datetime import datetime, timezone
+
+    ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     eval_event: TimelineEvent = {
         "type": "stage_evaluation",
         "stage": stage_name,
@@ -407,18 +389,15 @@ async def stream_agent_turn(
         "targetAgent": target_agent,
         "message": f"{target_agent} evaluated {candidate['variant']}.",
         "stageFeedback": reasoning[:500] + ("…" if len(reasoning) > 500 else ""),
-        "timestamp": _now(),
+        "timestamp": ts,
         "candidateId": candidate["id"],
         "candidateName": candidate["name"],
         "variant": candidate["variant"],
-        "technicalScore": scores["technicalScore"],
-        "subjectiveScore": scores["subjectiveScore"],
-        "confidence": scores["confidence"],
-        "callbackProbability": scores["callbackProbability"],
+        **score_fields,
         "assumptionTags": assumption_tags,
     }
     if branch_reason:
-        eval_event["branchReason"] = branch_reason
+        eval_event["branchReason"] = branch_reason  # type: ignore[typeddict-unknown-key]
 
     return scores, new_transcript, eval_event
 
@@ -428,25 +407,19 @@ async def stream_auditor_summary(
     state: SimulationState,
     reasoning: str,
 ) -> None:
-    """Stream the bias auditor's summary message."""
-    writer = get_stream_writer()
+    emitter = require_emitter()
     stage_name = "Bias Audit"
     message_id = _new_message_id()
     speaker = "Bias Auditor Agent"
 
-    _emit(
-        writer,
-        {
-            "type": "agent_message_start",
-            "messageId": message_id,
-            "speaker": speaker,
-            "messageRole": "reasoning",
-            "stage": stage_name,
-            "stageIndex": 6,
-            "sourceAgent": "Hiring Manager Agent",
-            "targetAgent": speaker,
-            "content": "",
-        },
+    emitter.stream_message_start(
+        message_id=message_id,
+        speaker=speaker,
+        message_role="reasoning",
+        stage=stage_name,
+        stage_index=6,
+        source_agent="Hiring Manager Agent",
+        target_agent=speaker,
     )
 
     if is_llm_enabled() and not reasoning:
@@ -459,39 +432,39 @@ async def stream_auditor_summary(
         )
         async for delta in _stream_llm_text([system, human]):
             reasoning += delta
-            _emit(
-                writer,
-                {
-                    "type": "agent_message_delta",
-                    "messageId": message_id,
-                    "delta": delta,
-                    "stage": stage_name,
-                    "stageIndex": 6,
-                    "speaker": speaker,
-                },
+            emitter.stream_message_delta(
+                message_id=message_id,
+                delta=delta,
+                stage=stage_name,
+                stage_index=6,
+                speaker=speaker,
             )
     else:
-        _emit(
-            writer,
-            {
-                "type": "agent_message_delta",
-                "messageId": message_id,
-                "delta": reasoning,
-                "stage": stage_name,
-                "stageIndex": 6,
-                "speaker": speaker,
-            },
+        emitter.stream_message_delta(
+            message_id=message_id,
+            delta=reasoning,
+            stage=stage_name,
+            stage_index=6,
+            speaker=speaker,
         )
 
-    _emit(
-        writer,
+    emitter.stream_message_end(
+        message_id=message_id,
+        speaker=speaker,
+        message_role="reasoning",
+        content=reasoning,
+        stage=stage_name,
+        stage_index=6,
+    )
+    emitter.publish(
         {
-            "type": "agent_message_end",
-            "messageId": message_id,
-            "speaker": speaker,
-            "messageRole": "reasoning",
-            "content": reasoning,
+            "type": "agent_message",
             "stage": stage_name,
             "stageIndex": 6,
-        },
+            "sourceAgent": "Hiring Manager Agent",
+            "targetAgent": speaker,
+            "message": reasoning,
+            "messageRole": "reasoning",
+            "messageId": message_id,
+        }
     )

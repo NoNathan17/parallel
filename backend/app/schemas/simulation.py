@@ -52,15 +52,17 @@ class TimelineEvent(TypedDict, total=False):
     timestamp: str
 
 
-class FinalFeedback(TypedDict):
+class FinalFeedback(TypedDict, total=False):
     summary: str
     key_findings: list[str]
     divergence_points: list[str]
     suggested_interventions: list[str]
     fairness_delta_placeholder: str
+    fairness_metrics: dict[str, float]
 
 
 class SimulationState(TypedDict, total=False):
+    simulation_id: str
     target_role: str
     raw_resume_text: str
     parsed_resume: ParsedResume | None
@@ -68,6 +70,9 @@ class SimulationState(TypedDict, total=False):
     stages: list[str]
     events: list[TimelineEvent]
     agent_transcript: list[TranscriptEntry]
+    interventions: list[str]
+    is_replay: bool
     final_feedback: FinalFeedback | None
     current_stage_index: int
     stage_scores: dict[str, dict[str, float]]
+    fairness_metrics: dict[str, float]

@@ -1,3 +1,5 @@
+import uuid
+
 from langgraph.graph import END, START, StateGraph
 
 from app.graph.nodes import (
@@ -11,6 +13,7 @@ from app.graph.nodes import (
 )
 from app.schemas import SimulationState
 from app.scoring import STAGE_NAMES
+from app.simulation.interventions import normalize_interventions
 
 
 def build_graph():
@@ -36,8 +39,16 @@ def build_graph():
     return workflow.compile()
 
 
-def initial_state(raw_resume_text: str, target_role: str) -> SimulationState:
+def initial_state(
+    raw_resume_text: str,
+    target_role: str,
+    *,
+    simulation_id: str | None = None,
+    interventions: list[str] | None = None,
+    is_replay: bool = False,
+) -> SimulationState:
     return SimulationState(
+        simulation_id=simulation_id or str(uuid.uuid4()),
         target_role=target_role,
         raw_resume_text=raw_resume_text,
         parsed_resume=None,
@@ -45,7 +56,10 @@ def initial_state(raw_resume_text: str, target_role: str) -> SimulationState:
         stages=STAGE_NAMES,
         events=[],
         agent_transcript=[],
+        interventions=normalize_interventions(interventions),
+        is_replay=is_replay,
         final_feedback=None,
         current_stage_index=-1,
         stage_scores={},
+        fairness_metrics={},
     )

@@ -4,11 +4,12 @@ from io import BytesIO
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.graph.builder import build_graph
+from app.schemas.simulation_api import SimulateRequest, SimulationEventCatalog
 from app.services.simulation_service import stream_simulation
+from app.simulation.interventions import INTERVENTION_LABELS
 
 try:
     from pypdf import PdfReader
@@ -50,9 +51,13 @@ def create_app() -> FastAPI:
             "llm": bool(settings.openai_api_key.strip()),
         }
 
-    class SimulateJsonBody(BaseModel):
-        resumeText: str = Field(..., min_length=1)
-        targetRole: str = Field(..., min_length=1)
+    @app.get("/simulate/schema")
+    async def simulate_schema() -> SimulationEventCatalog:
+        return SimulationEventCatalog()
+
+    @app.get("/interventions")
+    async def list_interventions() -> dict[str, str]:
+        return INTERVENTION_LABELS
 
     async def _read_upload(file: UploadFile) -> str:
         content = await file.read()
@@ -86,6 +91,8 @@ def create_app() -> FastAPI:
     @app.post("/simulate")
     async def simulate(request: Request) -> StreamingResponse:
         content_type = request.headers.get("content-type", "")
+        interventions: list[str] = []
+        is_replay = False
 
         if content_type.startswith("multipart/form-data"):
             form = await request.form()
@@ -97,18 +104,39 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=422, detail="file is required for multipart upload")
             resume_text = await _read_upload(upload)  # type: ignore[arg-type]
             role = str(target_role).strip()
+            raw_interventions = form.get("interventions")
+            if raw_interventions:
+                interventions = [
+                    s.strip()
+                    for s in str(raw_interventions).split(",")
+                    if s.strip()
+                ]
+            is_replay = str(form.get("isReplay", "")).lower() in ("1", "true", "yes")
         else:
             body = await request.json()
-            payload = SimulateJsonBody.model_validate(body)
+            payload = SimulateRequest.model_validate(body)
             resume_text = payload.resumeText
             role = payload.targetRole
+            interventions = payload.interventions
+            is_replay = payload.isReplay
 
         if not resume_text.strip():
             raise HTTPException(status_code=422, detail="Resume text is empty")
 
         return StreamingResponse(
-            stream_simulation(request.app.state.graph, resume_text, role),
+            stream_simulation(
+                request.app.state.graph,
+                resume_text,
+                role,
+                interventions=interventions,
+                is_replay=is_replay,
+            ),
             media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
         )
 
     return app

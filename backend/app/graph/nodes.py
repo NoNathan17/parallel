@@ -12,6 +12,9 @@ from app.scoring import (
     score_resume_screener,
     score_technical_interviewer,
 )
+from app.simulation.branching import detect_branch, fairness_metrics
+from app.simulation.context import get_emitter
+from app.simulation.interventions import wrap_scorer
 
 
 def _now() -> str:
@@ -47,6 +50,15 @@ def _event(
 
 
 def parse_resume_node(state: SimulationState) -> dict:
+    emitter = get_emitter()
+    if emitter:
+        emitter.stage_entered(
+            stage=STAGE_NAMES[0],
+            stage_index=0,
+            candidate_ids=[],
+            source_agent="System",
+        )
+
     parsed = parse_resume_text(state["raw_resume_text"])
     skills_preview = ", ".join(parsed["skills"][:4]) if parsed["skills"] else "relevant stack"
     event = _event(
@@ -61,33 +73,47 @@ def parse_resume_node(state: SimulationState) -> dict:
             f"{len(parsed['projects'])} project(s), {len(parsed['experience'])} experience line(s)."
         ),
     )
+    if emitter:
+        emitter.publish(dict(event))
+        emitter.stage_completed(STAGE_NAMES[0], 0)
     return {
         "parsed_resume": parsed,
         "current_stage_index": 0,
-        "events": [event],
+        "events": [],
     }
 
 
 def generate_candidate_variants_node(state: SimulationState) -> dict:
+    emitter = get_emitter()
     candidates = create_candidate_variants(state["parsed_resume"], state["target_role"])
-    events: list[TimelineEvent] = []
-    for c in candidates:
-        events.append(
-            _event(
-                event_type="variant_created",
-                stage=STAGE_NAMES[1],
-                stage_index=1,
-                source_agent="Variant Generator",
-                target_agent="Simulation Engine",
-                message=f"Created variant: {c['variant']}",
-                stage_feedback=(
-                    f"Variant '{c['variant']}' preserves equivalent qualifications; "
-                    f"contextual signal only: {c['signal']}"
-                ),
-                candidate=c,
-            )
+
+    if emitter:
+        emitter.stage_entered(
+            stage=STAGE_NAMES[1],
+            stage_index=1,
+            candidate_ids=[c["id"] for c in candidates],
         )
-    return {"candidates": candidates, "current_stage_index": 1, "events": events}
+
+    for c in candidates:
+        if emitter:
+            emitter.candidate_created(c, stage_index=1)
+            emitter.publish(
+                {
+                    "type": "variant_created",
+                    "stage": STAGE_NAMES[1],
+                    "stageIndex": 1,
+                    "candidateId": c["id"],
+                    "variant": c["variant"],
+                    "sourceAgent": "Candidate Variant Agent",
+                    "targetAgent": "Simulation Engine",
+                    "message": f"Created variant: {c['variant']}",
+                }
+            )
+
+    if emitter:
+        emitter.stage_completed(STAGE_NAMES[1], 1)
+
+    return {"candidates": candidates, "current_stage_index": 1, "events": []}
 
 
 def _screener_feedback(candidate: CandidateVariant, scores: dict, tags_only=False, branch_only=False):
@@ -176,15 +202,25 @@ async def _run_stage_for_all(
     scorer,
     feedback_fn,
 ) -> dict:
+    emitter = get_emitter()
+    interventions = state.get("interventions") or []
+    wrapped_scorer = wrap_scorer(scorer, interventions, stage_key)
+
     candidates = state["candidates"]
     stage_scores: dict[str, dict[str, float]] = dict(state.get("stage_scores") or {})
     transcript = list(state.get("agent_transcript") or [])
-    events: list[TimelineEvent] = []
     prior_scores = dict(stage_scores)
+
+    if emitter:
+        emitter.stage_entered(
+            stage=stage_name,
+            stage_index=stage_index,
+            candidate_ids=[c["id"] for c in candidates],
+        )
 
     for candidate in candidates:
         merged_state: SimulationState = {**state, "agent_transcript": transcript}
-        scores, new_lines, eval_event = await stream_agent_turn(
+        scores, new_lines, _eval_event = await stream_agent_turn(
             state=merged_state,
             candidate=candidate,
             stage_key=stage_key,
@@ -192,19 +228,22 @@ async def _run_stage_for_all(
             stage_index=stage_index,
             source_agent=source_agent,
             target_agent=target_agent,
-            fallback_scorer=scorer,
+            fallback_scorer=wrapped_scorer,
             fallback_feedback=feedback_fn,
             prior_scores=prior_scores or None,
         )
         stage_scores[candidate["id"]] = scores
+        prior_scores[candidate["id"]] = scores
         transcript.extend(new_lines)
-        events.append(eval_event)
+
+    if emitter:
+        emitter.stage_completed(stage_name, stage_index)
 
     return {
         "current_stage_index": stage_index,
         "stage_scores": stage_scores,
         "agent_transcript": transcript,
-        "events": events,
+        "events": [],
     }
 
 
@@ -249,88 +288,89 @@ async def technical_interviewer_node(state: SimulationState) -> dict:
 
 async def hiring_manager_node(state: SimulationState) -> dict:
     prior_scores = state.get("stage_scores") or {}
-    candidates = state["candidates"]
-    stage_scores: dict[str, dict[str, float]] = dict(prior_scores)
-    transcript = list(state.get("agent_transcript") or [])
-    events: list[TimelineEvent] = []
+    interventions = state.get("interventions") or []
 
-    for candidate in candidates:
-        prev = prior_scores.get(candidate["id"], score_technical_interviewer(candidate))
-        merged_state: SimulationState = {**state, "agent_transcript": transcript}
+    def base_scorer(c: CandidateVariant) -> dict[str, float]:
+        prev = prior_scores.get(c["id"], score_technical_interviewer(c))
+        return score_hiring_manager(c, prev)
 
-        def hm_scorer(c: CandidateVariant, _prev: dict[str, float] = prev) -> dict[str, float]:
-            return score_hiring_manager(c, _prev)
+    wrapped_hm = wrap_scorer(base_scorer, interventions, "hiring_manager")
 
-        scores, new_lines, eval_event = await stream_agent_turn(
-            state=merged_state,
-            candidate=candidate,
-            stage_key="hiring_manager",
-            stage_name=STAGE_NAMES[5],
-            stage_index=5,
-            source_agent="Technical Interviewer Agent",
-            target_agent="Hiring Manager Agent",
-            fallback_scorer=hm_scorer,
-            fallback_feedback=_manager_feedback,
-            prior_scores=prior_scores,
-        )
-        stage_scores[candidate["id"]] = scores
-        transcript.extend(new_lines)
-        events.append(eval_event)
-
-    return {
-        "current_stage_index": 5,
-        "stage_scores": stage_scores,
-        "agent_transcript": transcript,
-        "events": events,
-    }
+    return await _run_stage_for_all(
+        state,
+        stage_key="hiring_manager",
+        stage_index=5,
+        stage_name=STAGE_NAMES[5],
+        source_agent="Technical Interviewer Agent",
+        target_agent="Hiring Manager Agent",
+        scorer=wrapped_hm,
+        feedback_fn=_manager_feedback,
+    )
 
 
 async def bias_auditor_node(state: SimulationState) -> dict:
+    emitter = get_emitter()
     candidates = state["candidates"]
     final_scores = state.get("stage_scores") or {}
     baseline = final_scores.get("baseline", {})
-    events: list[TimelineEvent] = []
     divergence_points: list[str] = []
     key_findings: list[str] = []
+
+    if emitter:
+        emitter.stage_entered(
+            stage=STAGE_NAMES[6],
+            stage_index=6,
+            candidate_ids=[c["id"] for c in candidates if c["id"] != "baseline"],
+            source_agent="Bias Auditor Agent",
+        )
 
     for candidate in candidates:
         if candidate["id"] == "baseline":
             continue
         scores = final_scores.get(candidate["id"], {})
-        tech_delta = abs(scores.get("technicalScore", 0) - baseline.get("technicalScore", 0))
-        subj_delta = baseline.get("subjectiveScore", 0) - scores.get("subjectiveScore", 0)
-        conf_delta = baseline.get("confidence", 0) - scores.get("confidence", 0)
-        cb_delta = baseline.get("callbackProbability", 0) - scores.get("callbackProbability", 0)
+        branch = detect_branch(
+            candidate_id=candidate["id"],
+            variant=candidate["variant"],
+            scores=scores,
+            baseline_scores=baseline,
+            stage=STAGE_NAMES[6],
+            stage_index=6,
+            branch_reason="",
+            assumption_tags=[],
+        )
 
-        if tech_delta <= 3 and (subj_delta > 8 or conf_delta > 0.15 or cb_delta > 0.2):
-            point = (
-                f"{candidate['variant']}: technical scores within {tech_delta:.0f} pts of baseline, "
-                f"but subjective −{subj_delta:.0f}, confidence −{conf_delta:.2f}, "
-                f"callback −{cb_delta:.0%}."
-            )
+        if branch:
+            point = branch["branchReason"]
             divergence_points.append(point)
             key_findings.append(
                 f"Comparable technical strength; outcome divergence driven by contextual signals "
                 f"({candidate['signal']})."
             )
+            if emitter:
+                emitter.bias_audit_flag(
+                    candidate=candidate,
+                    stage_index=6,
+                    scores=scores,
+                    baseline_scores=baseline,
+                    severity=branch["severity"],
+                    message=point,
+                )
 
-        events.append(
-            _event(
-                event_type="audit_review",
-                stage=STAGE_NAMES[6],
-                stage_index=6,
-                source_agent="Hiring Manager Agent",
-                target_agent="Bias Auditor Agent",
-                message=f"Bias audit completed for {candidate['variant']}.",
-                stage_feedback=(
-                    f"Auditor compared trajectory vs baseline. "
-                    f"Technical parity: {scores.get('technicalScore', 0):.0f} vs "
-                    f"{baseline.get('technicalScore', 0):.0f}."
-                ),
-                candidate=candidate,
+        if emitter:
+            emitter.publish(
+                {
+                    "type": "audit_review",
+                    "stage": STAGE_NAMES[6],
+                    "stageIndex": 6,
+                    "candidateId": candidate["id"],
+                    "variant": candidate["variant"],
+                    "sourceAgent": "Hiring Manager Agent",
+                    "targetAgent": "Bias Auditor Agent",
+                    "message": f"Bias audit completed for {candidate['variant']}.",
+                }
             )
-        )
 
+    metrics = fairness_metrics(final_scores)
     interventions = [
         "Blind resume review and structured rubrics before recruiter screen to reduce identity signaling.",
         "Separate technical scoring from subjective 'culture fit' with calibrated definitions.",
@@ -353,7 +393,12 @@ async def bias_auditor_node(state: SimulationState) -> dict:
         "divergence_points": divergence_points
         or ["No major divergence detected in mock run (unexpected)."],
         "suggested_interventions": interventions,
-        "fairness_delta_placeholder": "Fairness delta metric placeholder — integrate calibrated scoring in production.",
+        "fairness_delta_placeholder": (
+            f"Max callback gap: {metrics['maxCallbackGap']:.1f} pts; "
+            f"max subjective gap: {metrics['maxSubjectiveGap']:.1f}; "
+            f"branched variants: {int(metrics['branchedVariantCount'])}."
+        ),
+        "fairness_metrics": metrics,
     }
 
     await stream_auditor_summary(
@@ -369,21 +414,27 @@ async def bias_auditor_node(state: SimulationState) -> dict:
         key_findings=key_findings,
         fallback=fallback_feedback,
     )
+    final_feedback["fairness_metrics"] = metrics
 
-    events.append(
-        _event(
-            event_type="audit_summary",
-            stage=STAGE_NAMES[6],
-            stage_index=6,
-            source_agent="Bias Auditor Agent",
-            target_agent="Simulation Engine",
-            message="Bias audit summary generated.",
-            stage_feedback=final_feedback["summary"],
+    if emitter:
+        emitter.stage_completed(STAGE_NAMES[6], 6)
+
+    if emitter:
+        emitter.publish(
+            {
+                "type": "audit_summary",
+                "stage": STAGE_NAMES[6],
+                "stageIndex": 6,
+                "sourceAgent": "Bias Auditor Agent",
+                "targetAgent": "Simulation Engine",
+                "message": "Bias audit summary generated.",
+                "summary": final_feedback["summary"],
+            }
         )
-    )
 
     return {
         "current_stage_index": 6,
         "final_feedback": final_feedback,
-        "events": events,
+        "fairness_metrics": metrics,
+        "events": [],
     }
