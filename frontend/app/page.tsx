@@ -1,5 +1,5 @@
-import { SimulationApp } from "@/components/simulation-app";
+import { WelcomePage } from "@/components/welcome/welcome-page";
 
 export default function Home() {
-  return <SimulationApp />;
+  return <WelcomePage />;
 }

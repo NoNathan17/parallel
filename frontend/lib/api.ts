@@ -135,6 +135,41 @@ export async function checkHealth(): Promise<HealthStatus> {
   }
 }
 
+export type ProfilePreviewResponse = {
+  parsed: {
+    name: string;
+    email: string;
+    education: string[];
+    skills: string[];
+    projects: string[];
+    experience: string[];
+    summary: string;
+  };
+  candidates: Array<{
+    id: string;
+    name: string;
+    variant: string;
+    signal: string;
+    resumeSnapshot: string;
+  }>;
+};
+
+export async function fetchProfilePreview(
+  resumeText: string,
+  targetRole: string,
+): Promise<ProfilePreviewResponse> {
+  const res = await fetch(`${API_BASE}/profile/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ resumeText, targetRole }),
+  });
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(detail || `Preview failed (${res.status})`);
+  }
+  return res.json();
+}
+
 export async function fetchInterventions(): Promise<Record<string, string>> {
   try {
     const res = await fetch(`${API_BASE}/interventions`, { cache: "no-store" });

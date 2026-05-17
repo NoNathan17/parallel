@@ -5,8 +5,10 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
+from app.candidate_generator import create_candidate_variants
 from app.config import get_settings
 from app.graph.builder import build_graph
+from app.resume_parser import parse_resume_text
 from app.schemas.simulation_api import SimulateRequest, SimulationEventCatalog
 from app.services.simulation_service import stream_simulation
 from app.simulation.interventions import INTERVENTION_LABELS
@@ -87,6 +89,26 @@ def create_app() -> FastAPI:
             status_code=415,
             detail="Unsupported file type. Upload .txt or .pdf resume files.",
         )
+
+    @app.post("/profile/preview")
+    async def profile_preview(payload: SimulateRequest) -> dict:
+        if not payload.resumeText.strip():
+            raise HTTPException(status_code=422, detail="Resume text is empty")
+        parsed = parse_resume_text(payload.resumeText)
+        candidates = create_candidate_variants(parsed, payload.targetRole)
+        return {
+            "parsed": parsed,
+            "candidates": [
+                {
+                    "id": c["id"],
+                    "name": c["name"],
+                    "variant": c["variant"],
+                    "signal": c["signal"],
+                    "resumeSnapshot": c["resume_snapshot"],
+                }
+                for c in candidates
+            ],
+        }
 
     @app.post("/simulate")
     async def simulate(request: Request) -> StreamingResponse:
