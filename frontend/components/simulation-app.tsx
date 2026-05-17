@@ -1,60 +1,72 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { motion } from "framer-motion";
 
-import { AgentMessageCard } from "@/components/agent-message-card";
+import { AgentFeed } from "@/components/agent-feed";
 import { FinalFeedbackPanel } from "@/components/final-feedback-panel";
+import { InterventionControls } from "@/components/intervention-controls";
 import { LandingPanel } from "@/components/landing-panel";
+import { NodeInspector } from "@/components/node-inspector";
 import { ResumeForm } from "@/components/resume-form";
-import { TimelineEventCard } from "@/components/timeline-event-card";
 import { VariantsGuide } from "@/components/variants-guide";
-import {
-  applyAgentStreamEvent,
-  isAgentStreamEvent,
-} from "@/lib/agent-stream";
 import {
   checkHealth,
   streamSimulationFile,
   streamSimulationJson,
 } from "@/lib/api";
-import type { AgentMessage, FinalFeedback, SimulationEvent, TimelineEvent } from "@/lib/types";
-import { isFinalFeedback, isTimelineEvent } from "@/lib/types";
-import { VARIANTS } from "@/lib/variants";
+import type { SimulationEvent } from "@/lib/types";
+import {
+  initialSimulationUIState,
+  simulationReducer,
+  type SimulationUIState,
+} from "@/lib/simulation-reducer";
 
-type FeedItem =
-  | { kind: "agent"; messageId: string }
-  | { kind: "timeline"; key: string };
+const BranchingTimeline = dynamic(
+  () =>
+    import("@/components/timeline/branching-timeline").then((m) => m.BranchingTimeline),
+  {
+    ssr: false,
+    loading: () => (
+      <motion.div
+        className="flex h-[min(72vh,640px)] items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--surface-muted)]"
+        animate={{ opacity: [0.5, 1, 0.5] }}
+        transition={{ repeat: Infinity, duration: 1.2 }}
+      >
+        <span className="text-sm text-[var(--muted)]">Loading timeline…</span>
+      </motion.div>
+    ),
+  },
+);
 
 const DEFAULT_ROLE = "Software Engineering Intern";
+
+function parseNodeFilter(nodeId: string | null): string | null {
+  const m = nodeId?.match(/^node-(.+)-\d+$/);
+  return m?.[1] ?? null;
+}
 
 export function SimulationApp() {
   const [targetRole, setTargetRole] = useState(DEFAULT_ROLE);
   const [resumeText, setResumeText] = useState("");
-  const [events, setEvents] = useState<TimelineEvent[]>([]);
-  const [agentMessages, setAgentMessages] = useState<Map<string, AgentMessage>>(
-    new Map(),
-  );
-  const [feed, setFeed] = useState<FeedItem[]>([]);
-  const [finalFeedback, setFinalFeedback] = useState<FinalFeedback | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [interventions, setInterventions] = useState<string[]>([]);
+  const [isReplay, setIsReplay] = useState(false);
+  const [simState, dispatch] = useReducer(simulationReducer, initialSimulationUIState);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
   const [apiOk, setApiOk] = useState<boolean | null>(null);
   const [llmEnabled, setLlmEnabled] = useState(false);
-  const [filterVariant, setFilterVariant] = useState<string | "all">("all");
   const abortRef = useRef<AbortController | null>(null);
-  const timelineEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
-
     const poll = async () => {
       const { ok, llm } = await checkHealth();
       if (cancelled) return;
       setApiOk(ok);
       setLlmEnabled(llm);
     };
-
     poll();
     const id = setInterval(poll, 5000);
     return () => {
@@ -63,140 +75,111 @@ export function SimulationApp() {
     };
   }, []);
 
-  useEffect(() => {
-    if (loading) {
-      timelineEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [feed.length, loading]);
-
-  const reset = useCallback(() => {
-    setEvents([]);
-    setAgentMessages(new Map());
-    setFeed([]);
-    setFinalFeedback(null);
-    setError(null);
-    setDone(false);
-  }, []);
-
-  const ingestEvent = useCallback((item: SimulationEvent) => {
-    if (isAgentStreamEvent(item)) {
-      const msgEvent = item as TimelineEvent;
-      if (item.type === "agent_message_start" && msgEvent.messageId) {
-        setFeed((prev) => {
-          if (prev.some((f) => f.kind === "agent" && f.messageId === msgEvent.messageId)) {
-            return prev;
-          }
-          return [...prev, { kind: "agent", messageId: msgEvent.messageId! }];
-        });
-      }
-      setAgentMessages((prev) => applyAgentStreamEvent(prev, msgEvent));
-      return;
-    }
-
-    if (isFinalFeedback(item)) {
-      setFinalFeedback(item.feedback);
-      return;
-    }
-
-    if (isTimelineEvent(item)) {
-      const key = `${item.timestamp}-${item.type}-${item.stageIndex}-${item.candidateId ?? ""}`;
-      setEvents((prev) => [...prev, item]);
-      setFeed((prev) => [...prev, { kind: "timeline", key }]);
-      return;
-    }
-
-    if (item.type === "simulation_done") {
-      setDone(true);
-    }
+  const ingest = useCallback((event: SimulationEvent) => {
+    dispatch(event);
   }, []);
 
   const runStream = useCallback(
-    async (generator: AsyncGenerator<import("@/lib/types").SimulationEvent>) => {
-      reset();
-      setLoading(true);
+    async (
+      generator: AsyncGenerator<SimulationEvent>,
+    ) => {
       abortRef.current?.abort();
       const ac = new AbortController();
       abortRef.current = ac;
 
+      setSelectedNodeId(null);
+      setError(null);
+      dispatch({
+        type: "start_loading",
+        targetRole,
+        interventions,
+        isReplay,
+      } as SimulationEvent);
+
       try {
         for await (const item of generator) {
           if (ac.signal.aborted) break;
-          ingestEvent(item);
+          ingest(item);
         }
       } catch (err) {
         if (!ac.signal.aborted) {
           setError(err instanceof Error ? err.message : "Simulation failed");
         }
       } finally {
-        setLoading(false);
+        if (!ac.signal.aborted) {
+          dispatch({ type: "simulation_done" } as SimulationEvent);
+        }
       }
     },
-    [reset, ingestEvent],
+    [targetRole, interventions, isReplay, ingest],
   );
 
+  const simUi: SimulationUIState = {
+    ...simState,
+    loading: simState.loading && !simState.done,
+  };
+
+  const showExperience =
+    simUi.loading || simUi.candidates.length > 0 || simUi.messageOrder.length > 0;
+
+  const filterCandidateId = parseNodeFilter(selectedNodeId);
+
   const handleSubmitPaste = () => {
-    runStream(streamSimulationJson(resumeText.trim(), targetRole.trim()));
+    runStream(
+      streamSimulationJson(resumeText.trim(), targetRole.trim(), {
+        interventions,
+        isReplay,
+      }),
+    );
   };
 
   const handleFileSelect = (file: File) => {
-    runStream(streamSimulationFile(file, targetRole.trim()));
+    runStream(
+      streamSimulationFile(file, targetRole.trim(), {
+        interventions,
+        isReplay,
+      }),
+    );
   };
 
   const handleStop = () => {
     abortRef.current?.abort();
-    setLoading(false);
+    dispatch({ type: "simulation_done" } as SimulationEvent);
   };
 
-  const filteredFeed =
-    filterVariant === "all"
-      ? feed
-      : feed.filter((item) => {
-          if (item.kind === "agent") {
-            const msg = agentMessages.get(item.messageId);
-            return !msg?.variant || msg.variant === filterVariant;
-          }
-          const ev = events.find(
-            (e) =>
-              `${e.timestamp}-${e.type}-${e.stageIndex}-${e.candidateId ?? ""}` ===
-              item.key,
-          );
-          return !ev?.variant || ev.variant === filterVariant;
-        });
-
-  const stageSet = new Set([
-    ...events.map((e) => e.stage),
-    ...Array.from(agentMessages.values()).map((m) => m.stage),
-  ]);
-  const showLanding =
-    !loading && feed.length === 0 && !finalFeedback;
-
   return (
-    <div className="min-h-full bg-[var(--background)] text-[var(--foreground)]">
+    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
       <header className="border-b border-[var(--border)] bg-[var(--surface)]/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
+        <motion.div
+          className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6"
+          layout
+        >
           <div>
             <p className="text-sm font-semibold tracking-wide text-[var(--primary)]">
               Parallel
             </p>
-            <h1 className="text-lg font-semibold text-[var(--foreground)] sm:text-xl">
-              Inclusivity hiring simulation
+            <h1 className="text-lg font-semibold sm:text-xl">
+              Multi-agent hiring timelines
             </h1>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <motion.div className="flex flex-wrap items-center gap-2" layout>
             {apiOk !== null && (
-              <>
-                <StatusBadge
-                  ok={apiOk}
-                  label={apiOk ? "API connected" : "API offline"}
-                />
-                {apiOk && llmEnabled && (
-                  <span className="rounded-full bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-medium text-[var(--primary)]">
-                    AI agents on
-                  </span>
-                )}
-              </>
+              <StatusBadge
+                ok={apiOk}
+                label={apiOk ? "API connected" : "API offline"}
+              />
             )}
-            {loading && (
+            {apiOk && llmEnabled && (
+              <span className="rounded-full bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-medium text-[var(--primary)]">
+                AI agents · live stream
+              </span>
+            )}
+            {simUi.lastSeq > 0 && (
+              <span className="text-xs text-[var(--muted)]">
+                step {simUi.lastSeq}
+              </span>
+            )}
+            {simUi.loading && (
               <button
                 type="button"
                 onClick={handleStop}
@@ -205,13 +188,13 @@ export function SimulationApp() {
                 Stop
               </button>
             )}
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       </header>
 
-      <main className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,340px)_1fr]">
-          <aside className="space-y-5 lg:sticky lg:top-6 lg:self-start">
+      <main className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
+        <div className="grid gap-6 xl:grid-cols-[300px_1fr_340px]">
+          <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
             <ResumeForm
               targetRole={targetRole}
               onTargetRoleChange={setTargetRole}
@@ -219,98 +202,79 @@ export function SimulationApp() {
               onResumeTextChange={setResumeText}
               onSubmit={handleSubmitPaste}
               onFileSelect={handleFileSelect}
-              disabled={loading}
-              loading={loading}
+              disabled={simUi.loading}
+              loading={simUi.loading}
+            />
+            <InterventionControls
+              selected={interventions}
+              onChange={setInterventions}
+              disabled={simUi.loading}
+              isReplay={isReplay}
+              onReplayChange={setIsReplay}
             />
             <VariantsGuide />
           </aside>
 
           <div className="min-w-0 space-y-4">
             {error && (
-              <div
+              <motion.div
                 role="alert"
-                className="rounded-xl border border-red-200 bg-[var(--error-bg)] px-4 py-3 text-sm text-[var(--error)]"
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-xl border border-red-500/30 bg-[var(--error-bg)] px-4 py-3 text-sm text-[var(--error)]"
               >
                 {error}
-              </div>
+              </motion.div>
             )}
 
-            {showLanding && <LandingPanel apiOk={apiOk} />}
+            {!showExperience && <LandingPanel apiOk={apiOk} />}
 
-            {(feed.length > 0 || loading) && (
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium text-[var(--muted)]">
-                  Show:
-                </span>
-                <FilterChip
-                  active={filterVariant === "all"}
-                  onClick={() => setFilterVariant("all")}
-                >
-                  All variants
-                </FilterChip>
-                {VARIANTS.map((v) => (
-                  <FilterChip
-                    key={v.name}
-                    active={filterVariant === v.name}
-                    onClick={() => setFilterVariant(v.name)}
-                  >
-                    {v.shortLabel}
-                  </FilterChip>
-                ))}
-                {stageSet.size > 0 && (
-                  <span className="ml-auto text-xs text-[var(--muted-light)]">
-                    {feed.length} updates · {stageSet.size} stages
-                  </span>
-                )}
-              </div>
+            {showExperience && (
+              <BranchingTimeline
+                state={simUi}
+                onSelectNode={setSelectedNodeId}
+              />
             )}
 
-            <div className="space-y-3">
-              {loading && feed.length === 0 && (
-                <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-5">
-                  <Spinner />
-                  <span className="text-sm text-[var(--muted)]">
-                    Parsing resume and generating variants…
-                  </span>
-                </div>
-              )}
-              {filteredFeed.map((item, i) => {
-                if (item.kind === "agent") {
-                  const msg = agentMessages.get(item.messageId);
-                  if (!msg) return null;
-                  return (
-                    <AgentMessageCard
-                      key={item.messageId}
-                      message={msg}
-                      isStreaming={!msg.isComplete && loading}
-                    />
-                  );
-                }
-                const event = events.find(
-                  (e) =>
-                    `${e.timestamp}-${e.type}-${e.stageIndex}-${e.candidateId ?? ""}` ===
-                    item.key,
-                );
-                if (!event) return null;
-                return (
-                  <TimelineEventCard
-                    key={item.key}
-                    event={event}
-                    isLatest={i === filteredFeed.length - 1 && loading}
-                  />
-                );
-              })}
-              <div ref={timelineEndRef} />
-            </div>
+            {simUi.interventionResult && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="rounded-xl border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-4 py-3 text-sm"
+              >
+                <p className="font-medium text-[var(--accent)]">
+                  Intervention replay
+                </p>
+                <p className="mt-1 text-[var(--muted)]">
+                  {simUi.interventionResult.message} Callback gap reduced by{" "}
+                  {simUi.interventionResult.callbackGapReduction} pts.
+                </p>
+              </motion.div>
+            )}
 
-            {finalFeedback && <FinalFeedbackPanel feedback={finalFeedback} />}
-
-            {done && !loading && (
-              <p className="text-center text-sm text-[var(--muted)]">
-                Simulation complete — review the bias auditor summary above.
-              </p>
+            {simUi.finalFeedback && (
+              <FinalFeedbackPanel feedback={simUi.finalFeedback} />
             )}
           </div>
+
+          <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
+            {showExperience ? (
+              <>
+                <AgentFeed
+                  state={simUi}
+                  filterCandidateId={filterCandidateId}
+                />
+                <NodeInspector
+                  state={simUi}
+                  selectedNodeId={selectedNodeId}
+                />
+              </>
+            ) : (
+              <p className="rounded-xl border border-dashed border-[var(--border)] p-6 text-center text-sm text-[var(--muted)]">
+                Agent conversation streams here during simulation.
+              </p>
+            )}
+          </aside>
         </div>
       </main>
     </div>
@@ -328,42 +292,8 @@ function StatusBadge({ ok, label }: { ok: boolean; label: string }) {
     >
       <span
         className={`h-1.5 w-1.5 rounded-full ${ok ? "bg-[var(--success)]" : "bg-[var(--error)]"}`}
-        aria-hidden
       />
       {label}
     </span>
-  );
-}
-
-function FilterChip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full px-3 py-1 text-sm transition ${
-        active
-          ? "bg-[var(--primary)] font-medium text-[#0c0e14]"
-          : "bg-[var(--surface-muted)] text-[var(--muted)] hover:bg-[var(--border)]"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Spinner() {
-  return (
-    <span
-      className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--primary)]"
-      aria-hidden
-    />
   );
 }

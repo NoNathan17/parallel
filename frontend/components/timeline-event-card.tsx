@@ -46,13 +46,17 @@ export function TimelineEventCard({ event, isLatest }: TimelineEventCardProps) {
         </p>
       )}
 
-      <p className="text-sm font-medium text-[var(--foreground)]">
-        {event.message}
-      </p>
+      {event.message && (
+        <p className="text-sm font-medium text-[var(--foreground)]">
+          {event.message}
+        </p>
+      )}
 
-      <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
-        {event.stageFeedback}
-      </p>
+      {event.stageFeedback && (
+        <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
+          {event.stageFeedback}
+        </p>
+      )}
 
       {event.branchReason && (
         <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">

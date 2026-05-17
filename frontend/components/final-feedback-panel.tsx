@@ -1,3 +1,5 @@
+import { motion } from "framer-motion";
+
 import type { FinalFeedback } from "@/lib/types";
 
 type FinalFeedbackPanelProps = {
@@ -47,10 +49,36 @@ export function FinalFeedbackPanel({ feedback }: FinalFeedbackPanelProps) {
         </ul>
       </div>
 
+      {feedback.fairnessMetrics && (
+        <div className="mt-6 grid grid-cols-3 gap-3">
+          <MetricCard
+            label="Max callback gap"
+            value={`${feedback.fairnessMetrics.maxCallbackGap} pts`}
+          />
+          <MetricCard
+            label="Max subjective gap"
+            value={`${feedback.fairnessMetrics.maxSubjectiveGap}`}
+          />
+          <MetricCard
+            label="Branched variants"
+            value={String(feedback.fairnessMetrics.branchedVariantCount)}
+          />
+        </div>
+      )}
+
       <p className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3 text-xs leading-relaxed text-[var(--muted)]">
         {feedback.fairnessDeltaPlaceholder}
       </p>
     </section>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <motion.div className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2">
+      <p className="text-[10px] uppercase tracking-wide text-[var(--muted)]">{label}</p>
+      <p className="text-sm font-semibold text-[var(--foreground)]">{value}</p>
+    </motion.div>
   );
 }
 
